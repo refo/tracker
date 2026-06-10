@@ -10,7 +10,7 @@
   },
   "type": "module",
   "bin": {
-    "tracker": "./bin/tracker.mjs"
+    "tracker": "bin/tracker.mjs"
   },
   "files": ["bin", "dist", "tracker.config.example.json", "README.md", "LICENSE"],
   "engines": {
