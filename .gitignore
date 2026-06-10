@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.env
+.tracker/
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+
+# The real config carries instance/project identifiers — keep it local.
+# Copy tracker.config.example.json to tracker.config.json and fill it in.
+tracker.config.json
+*.tgz

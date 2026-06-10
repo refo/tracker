@@ -1,0 +1,21 @@
+{
+  "provider": "gitlab",
+  "gitlab": {
+    "base_url": "https://gitlab.example.com",
+    "project": "group/project",
+    "token_env": ["TRACKER_GITLAB_TOKEN", "GITLAB_PERSONAL_ACCESS_TOKEN"],
+    "native_blocking": true
+  },
+  "labels": {
+    "in_progress": "status::in-progress"
+  },
+  "memory": {
+    "enabled": true,
+    "title": "📌 Project Memory",
+    "label": "meta::memory"
+  },
+  "cache": {
+    "path": ".tracker/cache.sqlite",
+    "stale_minutes": 15
+  }
+}

@@ -1,0 +1,44 @@
+{
+  "name": "trackerctl",
+  "version": "0.1.0",
+  "description": "Multi-backend issue-tracking CLI for humans and AI agents — claim races, dependencies, hierarchy, local FTS search, project memory. GitLab adapter first.",
+  "license": "MIT",
+  "author": "refo",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/refo/tracker.git"
+  },
+  "type": "module",
+  "bin": {
+    "tracker": "./bin/tracker.mjs"
+  },
+  "files": ["bin", "dist", "tracker.config.example.json", "README.md", "LICENSE"],
+  "engines": {
+    "bun": ">=1.1.0"
+  },
+  "keywords": [
+    "issue-tracker",
+    "gitlab",
+    "cli",
+    "agents",
+    "work-items",
+    "kanban",
+    "claim",
+    "dependencies"
+  ],
+  "scripts": {
+    "tracker": "bun src/cli/index.ts",
+    "build": "bun build src/cli/index.ts --target=bun --outfile=dist/tracker.js",
+    "smoke": "bun scripts/smoke.ts",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check .",
+    "gate": "bun run typecheck && bun run lint && bun test",
+    "prepublishOnly": "bun run gate && bun run build"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "@types/bun": "^1.2.0",
+    "typescript": "^5.7.0"
+  }
+}
