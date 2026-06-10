@@ -12,13 +12,7 @@
   "bin": {
     "tracker": "bin/tracker.mjs"
   },
-  "files": [
-    "bin",
-    "dist",
-    "tracker.config.example.json",
-    "README.md",
-    "LICENSE"
-  ],
+  "files": ["bin", "dist", "tracker.config.example.json", "README.md", "LICENSE"],
   "engines": {
     "bun": ">=1.1.0"
   },
