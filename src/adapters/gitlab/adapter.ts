@@ -92,7 +92,12 @@ export class GitLabAdapter implements TrackerAdapter {
   }
 
   capabilities(): AdapterCapabilities {
-    return { nativeBlocking: this.nativeBlocking, nativeHierarchy: true, serverSearch: true };
+    return {
+      nativeBlocking: this.nativeBlocking,
+      nativeHierarchy: true,
+      serverSearch: true,
+      timeTracking: true,
+    };
   }
 
   /** GraphQL needs the full path; resolve once when config only had a numeric id. */
@@ -296,6 +301,50 @@ export class GitLabAdapter implements TrackerAdapter {
     if (data.workItemUpdate.errors.length) {
       throw new DomainError(`workItemUpdate: ${data.workItemUpdate.errors.join("; ")}`);
     }
+  }
+
+  /** GitLab duration strings, in unambiguous h/m/s (1d=8h conversions happen CLI-side). */
+  private static glDuration(seconds: number): string {
+    const sign = seconds < 0 ? "-" : "";
+    let rest = Math.abs(seconds);
+    const parts: string[] = [];
+    const h = Math.floor(rest / 3600);
+    rest %= 3600;
+    const m = Math.floor(rest / 60);
+    const s = rest % 60;
+    if (h) parts.push(`${h}h`);
+    if (m) parts.push(`${m}m`);
+    if (s) parts.push(`${s}s`);
+    return sign + (parts.join("") || "0m");
+  }
+
+  async addTimeSpent(id: ItemId, seconds: number): Promise<void> {
+    try {
+      await this.client.rest(`projects/${this.projectRef}/issues/${id}/add_spent_time`, {
+        method: "POST",
+        body: { duration: GitLabAdapter.glDuration(seconds) },
+      });
+    } catch (e) {
+      if (e instanceof GitLabHttpError && e.status === 400) {
+        throw new DomainError(
+          `cannot record ${GitLabAdapter.glDuration(seconds)} on #${id}: ${e.message}`,
+        );
+      }
+      throw e;
+    }
+  }
+
+  async setTimeEstimate(id: ItemId, seconds: number): Promise<void> {
+    if (seconds === 0) {
+      await this.client.rest(`projects/${this.projectRef}/issues/${id}/reset_time_estimate`, {
+        method: "POST",
+      });
+      return;
+    }
+    await this.client.rest(`projects/${this.projectRef}/issues/${id}/time_estimate`, {
+      method: "POST",
+      body: { duration: GitLabAdapter.glDuration(seconds) },
+    });
   }
 
   async comment(id: ItemId, body: string): Promise<void> {

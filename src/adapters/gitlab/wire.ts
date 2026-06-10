@@ -17,6 +17,10 @@ export interface GitLabIssue {
   updated_at: string;
   web_url: string;
   issue_type?: string;
+  time_stats?: {
+    time_estimate: number;
+    total_time_spent: number;
+  };
 }
 
 export interface GitLabNote {

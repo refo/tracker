@@ -26,6 +26,10 @@ export interface WorkItem {
   url: string;
   description: string;
   updatedAt: string;
+  /** Accumulated time spent, in seconds (0 = none recorded). */
+  timeSpentSeconds: number;
+  /** Time estimate, in seconds (0 = no estimate). */
+  timeEstimateSeconds: number;
   /** Provider wire payload, cached for debugging only. Stripped from CLI output. */
   raw?: unknown;
 }

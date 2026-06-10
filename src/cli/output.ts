@@ -1,3 +1,4 @@
+import { formatDuration } from "../core/duration.ts";
 import type { User, WorkItem } from "../model/types.ts";
 
 /** Stable JSON shape for a work item (debug `raw` payload stripped). */
@@ -32,6 +33,13 @@ export function printItemDetail(item: WorkItem, blocks: string[]): void {
   console.log(`parent:     ${item.parent ? `#${item.parent}` : "-"}`);
   console.log(`blocked by: ${item.blockedBy.map((b) => `#${b}`).join(", ") || "-"}`);
   console.log(`blocks:     ${blocks.map((b) => `#${b}`).join(", ") || "-"}`);
+  if (item.timeSpentSeconds || item.timeEstimateSeconds) {
+    const spent = formatDuration(item.timeSpentSeconds);
+    const estimate = item.timeEstimateSeconds
+      ? ` / estimate ${formatDuration(item.timeEstimateSeconds)}`
+      : "";
+    console.log(`time:       spent ${spent}${estimate}`);
+  }
   console.log(`updated:    ${item.updatedAt}`);
   if (item.description) {
     console.log("---");

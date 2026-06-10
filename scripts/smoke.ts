@@ -133,6 +133,17 @@ try {
     check("forget hides the key", !afterForget.some((m) => m.key === STAMP));
   }
 
+  // time tracking
+  await adapter.addTimeSpent(blocker.id, 5400);
+  await adapter.addTimeSpent(blocker.id, -1800);
+  await adapter.setTimeEstimate(blocker.id, 8 * 3600);
+  const timed = await adapter.get(blocker.id);
+  check(
+    "time tracking (spend/subtract/estimate)",
+    timed.timeSpentSeconds === 3600 && timed.timeEstimateSeconds === 8 * 3600,
+    `spent=${timed.timeSpentSeconds}s est=${timed.timeEstimateSeconds}s`,
+  );
+
   // users
   const users = await adapter.resolveUsers(me.username);
   check(

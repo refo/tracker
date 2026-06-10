@@ -17,6 +17,8 @@ CREATE TABLE IF NOT EXISTS items (
   url         TEXT NOT NULL,
   description TEXT NOT NULL,
   updated_at  TEXT NOT NULL,
+  time_spent    INTEGER NOT NULL DEFAULT 0,
+  time_estimate INTEGER NOT NULL DEFAULT 0,
   raw         TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_items_parent ON items(parent);
@@ -46,6 +48,8 @@ interface ItemRow {
   url: string;
   description: string;
   updated_at: string;
+  time_spent: number;
+  time_estimate: number;
 }
 
 export class Cache {
@@ -55,13 +59,24 @@ export class Cache {
     if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
     this.db = new Database(path);
     this.db.exec(SCHEMA);
+    // Migrations for caches created before these columns existed.
+    for (const col of [
+      "time_spent INTEGER NOT NULL DEFAULT 0",
+      "time_estimate INTEGER NOT NULL DEFAULT 0",
+    ]) {
+      try {
+        this.db.exec(`ALTER TABLE items ADD COLUMN ${col}`);
+      } catch {
+        // column already exists
+      }
+    }
   }
 
   /** Atomically replace the whole snapshot (sync writes the complete state). */
   replaceAll(items: WorkItem[], provider: string): void {
     const insertItem = this.db.prepare(
-      `INSERT INTO items (id, provider, kind, title, state, labels, assignees, author, parent, url, description, updated_at, raw)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO items (id, provider, kind, title, state, labels, assignees, author, parent, url, description, updated_at, time_spent, time_estimate, raw)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     const insertLink = this.db.prepare(
       "INSERT OR IGNORE INTO links (blocker, blocked) VALUES (?, ?)",
@@ -85,6 +100,8 @@ export class Cache {
           item.url,
           item.description,
           item.updatedAt,
+          item.timeSpentSeconds,
+          item.timeEstimateSeconds,
           item.raw === undefined ? null : JSON.stringify(item.raw),
         );
         for (const blocker of item.blockedBy) insertLink.run(blocker, item.id);
@@ -108,6 +125,8 @@ export class Cache {
       url: row.url,
       description: row.description,
       updatedAt: row.updated_at,
+      timeSpentSeconds: row.time_spent,
+      timeEstimateSeconds: row.time_estimate,
     };
   }
 

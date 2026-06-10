@@ -51,6 +51,8 @@ export function mapIssue(issue: GitLabIssue, info?: HierarchyInfo): WorkItem {
     url: issue.web_url,
     description,
     updatedAt: issue.updated_at,
+    timeSpentSeconds: issue.time_stats?.total_time_spent ?? 0,
+    timeEstimateSeconds: issue.time_stats?.time_estimate ?? 0,
     raw: issue,
   };
 }

@@ -86,6 +86,8 @@ Read commands serve from a local sqlite cache that auto-syncs when older than
 | `tracker release <id>` | Clear assignee + label, tombstone claim tokens |
 | `tracker close <id> [--reason <text>]` | Close (clears assignee + in-progress label) |
 | `tracker comment <id> <text>` | Post a comment on an item |
+| `tracker spend <id> <duration>` | Add time spent (`1h30m`, `2d`; `-30m` subtracts) |
+| `tracker estimate <id> <duration>` | Set the time estimate (`0` clears it) |
 | `tracker dep <id> --blocked-by <o> \| --blocks <o>` | Add a dependency edge |
 | `tracker parent <child> <parent>` | Re-parent an item |
 | `tracker remember <key> <text>` | Store a project memory |
@@ -101,6 +103,8 @@ tracker search --state closed                 # state alone is a valid filter
 tracker search "payment timeout" --label backend --state open
 tracker comment 42 "blocked on design review"
 tracker comments 42 --json
+tracker spend 42 1h30m                        # durations: w/d/h/m/s, 1d=8h, 1w=5d
+tracker estimate 42 2d
 tracker search checkout --remote --json       # fresher, server-side
 tracker create -t "Ship login" -d "OAuth" --parent 12 --blocked-by 7,9 -l auth,backend
 tracker claim 42 && do-the-work || echo "someone else got it"
@@ -144,6 +148,8 @@ domain refusal (e.g. lost a claim race) — pick different work, don't retry.
 - Inspect:          `tracker show <id> --json`, `tracker children <id> --json`,
                     `tracker epic-status <id> --json`, `tracker comments <id> --json`
 - Discuss:          `tracker comment <id> "<note for humans or other agents>"`
+- Track time:       `tracker spend <id> 1h30m` after finishing work (estimate vs spent
+                    feeds later evaluations; durations use 1d=8h, -30m subtracts)
 - Project memory:   `tracker remember <key> "<fact>"`, `tracker memories --json`,
                     `tracker forget <key>`
 
@@ -168,7 +174,9 @@ Never edit the `📌 Project Memory` issue or `🔒/🔓` notes by hand.
   "blockedBy": ["7", "9"],     // ids of open OR closed blockers; `ready` checks openness
   "url": "https://gitlab…/issues/42",
   "description": "…",
-  "updatedAt": "2026-06-10T17:21:33.000Z"
+  "updatedAt": "2026-06-10T17:21:33.000Z",
+  "timeSpentSeconds": 3600,        // 0 = none recorded
+  "timeEstimateSeconds": 57600     // 0 = no estimate
 }
 ```
 

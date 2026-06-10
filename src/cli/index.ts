@@ -7,6 +7,7 @@ import { Cache } from "../cache/db.ts";
 import { findGitRoot, guardCacheIgnored, isGitIgnored } from "../cache/ignore-guard.ts";
 import { type TrackerConfig, loadConfig, resolveToken } from "../config.ts";
 import { claimItem, releaseItem } from "../core/claim.ts";
+import { formatDuration, parseDuration } from "../core/duration.ts";
 import { normalizeId } from "../core/ids.ts";
 import { forget, listMemories, remember } from "../core/memory.ts";
 import { computeEpicStatus, computeReady } from "../core/ready.ts";
@@ -33,7 +34,8 @@ function parseArgs(
   const positionals: string[] = [];
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
-    if (!arg.startsWith("-") || arg === "-") {
+    // "-30m" style negative durations are positionals, not flags
+    if (!arg.startsWith("-") || arg === "-" || /^-\d/.test(arg)) {
       positionals.push(arg);
       continue;
     }
@@ -265,6 +267,41 @@ async function cmdMemories(ctx: Ctx, args: ParsedArgs): Promise<void> {
   for (const m of memories) console.log(`${m.key}\t${m.ts}\t${m.text}`);
 }
 
+function requireTimeTracking(ctx: Ctx): void {
+  if (!ctx.adapter.capabilities().timeTracking) {
+    throw new UsageError(`the ${ctx.adapter.provider} adapter does not support time tracking`);
+  }
+}
+
+async function cmdSpend(ctx: Ctx, args: ParsedArgs): Promise<void> {
+  requireTimeTracking(ctx);
+  const [idArg, durationArg] = args.positionals;
+  const id = normalizeId(idArg);
+  if (!durationArg) throw new UsageError(commandHelp("spend"));
+  const seconds = parseDuration(durationArg);
+  if (seconds === 0) throw new UsageError("spend needs a non-zero duration (e.g. 1h30m or -30m)");
+  await ctx.adapter.addTimeSpent(id, seconds);
+  invalidate(ctx);
+  const item = await ctx.adapter.get(id);
+  console.log(
+    `#${id} ${seconds > 0 ? "spent" : "subtracted"} ${formatDuration(Math.abs(seconds))} → total ${formatDuration(item.timeSpentSeconds)}`,
+  );
+}
+
+async function cmdEstimate(ctx: Ctx, args: ParsedArgs): Promise<void> {
+  requireTimeTracking(ctx);
+  const [idArg, durationArg] = args.positionals;
+  const id = normalizeId(idArg);
+  if (durationArg === undefined) throw new UsageError(commandHelp("estimate"));
+  const seconds = parseDuration(durationArg);
+  if (seconds < 0) throw new UsageError("an estimate cannot be negative (use 0 to clear it)");
+  await ctx.adapter.setTimeEstimate(id, seconds);
+  invalidate(ctx);
+  console.log(
+    seconds === 0 ? `#${id} estimate cleared` : `#${id} estimate ${formatDuration(seconds)}`,
+  );
+}
+
 async function cmdComment(ctx: Ctx, args: ParsedArgs): Promise<void> {
   const [idArg, ...textParts] = args.positionals;
   const id = normalizeId(idArg);
@@ -488,6 +525,8 @@ const VALUE_FLAGS: Record<string, Record<string, FlagKind>> = {
   memories: { "--json": "bool" },
   comment: {},
   comments: { "--json": "bool" },
+  spend: {},
+  estimate: {},
   sync: {},
   claim: {},
   release: {},
@@ -544,6 +583,8 @@ export async function run(argv: string[]): Promise<number> {
     memories: cmdMemories,
     comment: cmdComment,
     comments: cmdComments,
+    spend: cmdSpend,
+    estimate: cmdEstimate,
     search: cmdSearch,
     users: cmdUsers,
     whoami: cmdWhoami,

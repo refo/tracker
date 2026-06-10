@@ -97,6 +97,22 @@ describe("CLI exit codes and usage", () => {
     expect(r.stdout + r.stderr).not.toContain("usage: tracker search");
   });
 
+  test("spend/estimate reject bad durations before any network call", async () => {
+    const dir = configuredDir();
+    const bad = await runCli(["spend", "42", "ninety-minutes"], dir);
+    expect(bad.code).toBe(1);
+    expect(bad.stderr).toContain("invalid duration");
+    const zero = await runCli(["spend", "42", "0"], dir);
+    expect(zero.code).toBe(1);
+    expect(zero.stderr).toContain("non-zero");
+    const negEstimate = await runCli(["estimate", "42", "-1h"], dir);
+    expect(negEstimate.code).toBe(1);
+    expect(negEstimate.stderr).toContain("cannot be negative");
+    const noDuration = await runCli(["spend", "42"], dir);
+    expect(noDuration.code).toBe(1);
+    expect(noDuration.stderr).toContain("usage: tracker spend");
+  });
+
   test("comment without text and comments without id → usage errors", async () => {
     const dir = configuredDir();
     const noText = await runCli(["comment", "42"], dir);

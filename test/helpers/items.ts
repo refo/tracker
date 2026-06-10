@@ -21,6 +21,8 @@ export function makeItem(partial: Partial<WorkItem> & { id?: string }): WorkItem
     url: `https://example.test/items/${id}`,
     description: "",
     updatedAt: "2026-06-10T10:00:00Z",
+    timeSpentSeconds: 0,
+    timeEstimateSeconds: 0,
     ...partial,
   };
 }

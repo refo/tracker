@@ -22,6 +22,8 @@ write commands:
   release <id>               clear assignee/label, tombstone live claim tokens
   close <id> [--reason <text>]
   comment <id> <text>        post a comment on an item
+  spend <id> <duration>      add time spent (1h30m, 45m, 2d; -30m subtracts)
+  estimate <id> <duration>   set the time estimate (0 clears it)
   dep <id> --blocked-by <other> | --blocks <other>
   parent <child-id> <parent-id>
   remember <key> <text>      store a project memory (key has no whitespace)
@@ -82,6 +84,21 @@ Lists the item's comments oldest-first (system notes are filtered out). Claim
 notes (🔒/🔓) and memory entries (📌) appear here too — useful for debugging.
 
 example: tracker comments 42 --json`,
+  spend: `usage: tracker spend <id> <duration>
+
+Adds to the item's time spent. Durations use GitLab conventions:
+units w/d/h/m/s with 1d = 8h and 1w = 5d. A leading "-" subtracts.
+
+examples:
+  tracker spend 42 1h30m
+  tracker spend 42 -30m     # logged too much, take 30m back`,
+  estimate: `usage: tracker estimate <id> <duration>
+
+Sets the item's time estimate (same duration format as spend). 0 clears it.
+
+examples:
+  tracker estimate 42 2d
+  tracker estimate 42 0`,
   dep: `usage: tracker dep <id> --blocked-by <other> | --blocks <other>
 
 examples:

@@ -279,6 +279,32 @@ export function runContractSuite(name: string, harness: ContractHarness): void {
       expect(comments.every((c) => typeof c.id === "string" && c.createdAt)).toBe(true);
     });
 
+    test("time tracking: spend accumulates, negative subtracts, estimate sets/clears", async () => {
+      const { adapter } = await harness.make();
+      if (!adapter.capabilities().timeTracking) return;
+      const item = await adapter.create({ title: "Timed work" });
+
+      await adapter.addTimeSpent(item.id, 5400); // 1h30m
+      await adapter.addTimeSpent(item.id, 1800); // +30m
+      expect((await adapter.get(item.id)).timeSpentSeconds).toBe(7200);
+
+      await adapter.addTimeSpent(item.id, -3600); // logged too much
+      expect((await adapter.get(item.id)).timeSpentSeconds).toBe(3600);
+
+      await adapter.setTimeEstimate(item.id, 8 * 3600);
+      let fetched = (await adapter.fetchAll()).find((i) => i.id === item.id);
+      expect(fetched?.timeEstimateSeconds).toBe(8 * 3600);
+      expect(fetched?.timeSpentSeconds).toBe(3600);
+
+      await adapter.setTimeEstimate(item.id, 0);
+      fetched = (await adapter.fetchAll()).find((i) => i.id === item.id);
+      expect(fetched?.timeEstimateSeconds).toBe(0);
+
+      // subtracting below zero is refused and leaves the total unchanged
+      await expect(adapter.addTimeSpent(item.id, -7200)).rejects.toThrow();
+      expect((await adapter.get(item.id)).timeSpentSeconds).toBe(3600);
+    });
+
     test("whoami and resolveUsers", async () => {
       const { adapter } = await harness.make();
       const me = await adapter.whoami();

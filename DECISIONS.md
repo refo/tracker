@@ -92,6 +92,14 @@
   identifiers). `.tracker/` stays fully ignored — it only ever holds the sqlite cache files,
   so no per-file ignore split is needed.
 
+- **Time tracking (added 2026-06-10 on request)**: canonical `timeSpentSeconds` /
+  `timeEstimateSeconds` on WorkItem (seconds; 0 = none), behind a `timeTracking` capability.
+  GitLab maps to `add_spent_time` / `time_estimate` / `reset_time_estimate`; the values ride
+  along in sync for free via `time_stats` on the REST issue payload. CLI durations use
+  GitLab's conventions (1d = 8h, 1w = 5d); the adapter sends unambiguous h/m/s strings on the
+  wire so the server-side day length never disagrees. Negative spend (`-30m`) subtracts;
+  going below zero is refused. Cache migration adds the two columns to pre-existing caches.
+
 ## Verification record (2026-06-10)
 
 - `bun run gate`: typecheck clean, biome clean, **94 tests / 0 fail** (unit + contract suite

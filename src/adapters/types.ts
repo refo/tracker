@@ -15,6 +15,8 @@ export interface AdapterCapabilities {
   nativeHierarchy: boolean;
   /** Provider supports server-side search (tracker search --remote). */
   serverSearch: boolean;
+  /** Provider supports time tracking (tracker spend / estimate). */
+  timeTracking: boolean;
 }
 
 export interface RemoteQuery {
@@ -45,6 +47,10 @@ export interface TrackerAdapter {
   setParent(child: ItemId, parent: ItemId | null): Promise<void>;
   comment(id: ItemId, body: string): Promise<void>;
   listComments(id: ItemId): Promise<Comment[]>;
+  /** Add to time spent; negative seconds subtract. Only when capabilities().timeTracking. */
+  addTimeSpent(id: ItemId, seconds: number): Promise<void>;
+  /** Set the time estimate; 0 clears it. Only when capabilities().timeTracking. */
+  setTimeEstimate(id: ItemId, seconds: number): Promise<void>;
   /** Server-side search; only called when capabilities().serverSearch is true. */
   searchRemote(q: RemoteQuery): Promise<WorkItem[]>;
   resolveUsers(query: string): Promise<User[]>;

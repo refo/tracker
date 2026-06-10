@@ -59,6 +59,7 @@ export class FakeAdapter implements TrackerAdapter {
       nativeBlocking: true,
       nativeHierarchy: true,
       serverSearch: true,
+      timeTracking: true,
       ...this.caps,
     };
   }
@@ -93,6 +94,8 @@ export class FakeAdapter implements TrackerAdapter {
       url: `fake://item/${id}`,
       description: draft.description ?? "",
       updatedAt: new Date().toISOString(),
+      timeSpentSeconds: 0,
+      timeEstimateSeconds: 0,
     };
     this.backend.items.set(id, item);
     this.backend.comments.set(id, []);
@@ -134,6 +137,22 @@ export class FakeAdapter implements TrackerAdapter {
     const item = this.backend.mustGet(child);
     if (parent !== null) this.backend.mustGet(parent);
     item.parent = parent;
+  }
+
+  async addTimeSpent(id: ItemId, seconds: number): Promise<void> {
+    const item = this.backend.mustGet(id);
+    const next = item.timeSpentSeconds + seconds;
+    if (next < 0) {
+      throw new DomainError(`cannot subtract more time than was spent on #${id}`);
+    }
+    item.timeSpentSeconds = next;
+    item.updatedAt = new Date().toISOString();
+  }
+
+  async setTimeEstimate(id: ItemId, seconds: number): Promise<void> {
+    const item = this.backend.mustGet(id);
+    item.timeEstimateSeconds = Math.max(0, seconds);
+    item.updatedAt = new Date().toISOString();
   }
 
   async comment(id: ItemId, body: string): Promise<void> {

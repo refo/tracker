@@ -4,9 +4,21 @@ import type { GitLabIssue, GitLabNote, GitLabUser } from "../../src/adapters/git
 interface StoredIssue extends GitLabIssue {
   description: string;
   author: GitLabUser;
+  time_stats: { time_estimate: number; total_time_spent: number };
   /** Work-item parent iid, exposed via GraphQL hierarchy widget. */
   parent_iid: number | null;
   work_item_type: string;
+}
+
+/** GitLab's ChronicDuration subset: "1h30m", "-30m", h/m/s units. */
+function parseGlDuration(duration: string): number {
+  const negative = duration.startsWith("-");
+  const body = negative ? duration.slice(1) : duration;
+  let seconds = 0;
+  for (const m of body.matchAll(/(\d+)([hms])/g)) {
+    seconds += Number(m[1]) * (m[2] === "h" ? 3600 : m[2] === "m" ? 60 : 1);
+  }
+  return negative ? -seconds : seconds;
 }
 
 interface StoredLink {
@@ -53,6 +65,7 @@ export class FakeGitLabServer {
       updated_at: new Date().toISOString(),
       web_url: `${this.baseUrl}/${this.projectPath}/-/issues/${iid}`,
       issue_type: "issue",
+      time_stats: { time_estimate: 0, total_time_spent: 0 },
       parent_iid: null,
       work_item_type: "Issue",
       ...partial,
@@ -144,6 +157,25 @@ export class FakeGitLabServer {
         };
         this.notes.get(iid)!.push(note);
         return json(201, note);
+      }
+      if (rest === "/add_spent_time" && method === "POST") {
+        const delta = parseGlDuration(String(body.duration ?? ""));
+        const next = issue.time_stats.total_time_spent + delta;
+        if (next < 0) {
+          return json(400, {
+            message: "400 Bad request - Time to subtract exceeds the total time spent",
+          });
+        }
+        issue.time_stats.total_time_spent = next;
+        return json(201, issue.time_stats);
+      }
+      if (rest === "/time_estimate" && method === "POST") {
+        issue.time_stats.time_estimate = Math.max(0, parseGlDuration(String(body.duration ?? "")));
+        return json(200, issue.time_stats);
+      }
+      if (rest === "/reset_time_estimate" && method === "POST") {
+        issue.time_stats.time_estimate = 0;
+        return json(200, issue.time_stats);
       }
       if (rest === "/links" && method === "POST") {
         const target = Number(body.target_issue_iid);
