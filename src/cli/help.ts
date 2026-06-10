@@ -1,0 +1,100 @@
+export const HELP = `tracker — multi-backend issue tracking for humans and AI agents
+
+usage: tracker <command> [args]
+
+read commands (local cache, auto-sync when stale; all accept --json):
+  sync                       refresh the local cache from the provider
+  ready [--parent <id>]      open + unblocked + unassigned + not in-progress
+  show <id>                  full detail for one item
+  children <id>              direct children of an item
+  epic-status <id>           closed/total progress over an item's children
+  search [text] [filters]    full-text + filters; --remote for server-side search
+  users <query>              resolve usernames/names to user ids
+  whoami                     the authenticated user
+  memories [filter]          list project memories
+  doctor                     verify config, token, connectivity, capabilities
+
+write commands:
+  create -t <title> [-d <desc>] [--parent <id>] [--epic <id>] [-l a,b]
+         [--blocked-by 1,2] [-m <milestone>] [--json]
+  claim <id>                 race-safe claim (assigns you + in-progress label)
+  release <id>               clear assignee/label, tombstone live claim tokens
+  close <id> [--reason <text>]
+  dep <id> --blocked-by <other> | --blocks <other>
+  parent <child-id> <parent-id>
+  remember <key> <text>      store a project memory (key has no whitespace)
+  forget <key>               hide a memory key
+
+search filters:
+  --assignee <user> --author <user> --label <l> --state open|closed|all
+  --parent <id> --remote     (text query optional when any filter is given)
+
+examples:
+  tracker ready --parent 12 --json
+  tracker search --assignee mehmet           # works with no text query
+  tracker search "login bug" --state open
+  tracker create -t "Fix login" --parent 12 --blocked-by 7
+  tracker claim 42 && echo mine || echo taken
+  tracker close 42 --reason "fixed in MR !17"
+
+exit codes: 0 ok · 2 domain failure (lost race, refused claim, not found) · 1 usage/config error`;
+
+const PER_COMMAND: Record<string, string> = {
+  sync: "usage: tracker sync\n\nFull refresh of the local cache (issues + hierarchy + dependency links).",
+  ready: `usage: tracker ready [--parent <id>] [--json]
+
+Items that are open, not blocked by any open item, unassigned, not in-progress,
+and not the memory issue.
+
+examples:
+  tracker ready
+  tracker ready --parent 12 --json`,
+  show: "usage: tracker show <id> [--json]\n\nexample: tracker show 42",
+  children: "usage: tracker children <id> [--json]\n\nexample: tracker children 12",
+  "epic-status": "usage: tracker epic-status <id> [--json]\n\nexample: tracker epic-status 12",
+  claim: `usage: tracker claim <id>
+
+Race-safe claim: posts a claim note, waits a settle window, re-reads all notes,
+oldest live claim wins. Loser exits 2. Winner gets assigned + in-progress label.
+
+example: tracker claim 42 && start-work || pick-another`,
+  release:
+    "usage: tracker release <id>\n\nClears assignee + in-progress label and tombstones all live claim tokens.",
+  create: `usage: tracker create -t <title> [-d <desc>] [--parent <id>] [--epic <id>]
+                      [-l label1,label2] [--blocked-by <id1,id2>] [-m <milestone>] [--json]
+
+examples:
+  tracker create -t "Ship login" -d "OAuth via Keycloak" -l backend,auth
+  tracker create -t "Subtask" --parent 12 --blocked-by 7,9`,
+  close:
+    'usage: tracker close <id> [--reason <text>]\n\nexample: tracker close 42 --reason "fixed in MR !17"',
+  dep: `usage: tracker dep <id> --blocked-by <other> | --blocks <other>
+
+examples:
+  tracker dep 42 --blocked-by 7    # 7 blocks 42
+  tracker dep 42 --blocks 50       # 42 blocks 50`,
+  parent: "usage: tracker parent <child-id> <parent-id>\n\nexample: tracker parent 42 12",
+  remember:
+    'usage: tracker remember <key> <text>\n\nexample: tracker remember deploy-cmd "bun run deploy:prod"',
+  forget: "usage: tracker forget <key>\n\nexample: tracker forget deploy-cmd",
+  memories: "usage: tracker memories [filter] [--json]\n\nexample: tracker memories deploy",
+  search: `usage: tracker search [text] [--assignee <user>] [--author <user>] [--label <l>]
+                      [--state open|closed|all] [--parent <id>] [--remote] [--json]
+
+Local-first: full-text (FTS5) over cached title+description plus structured
+filters. Text is optional when at least one filter is given. --remote runs the
+provider's server-side search instead (fresher, slower, no --parent).
+
+examples:
+  tracker search --assignee mehmet
+  tracker search "payment timeout" --label backend --state open
+  tracker search checkout --remote --json`,
+  users: "usage: tracker users <query> [--json]\n\nexample: tracker users mehmet",
+  whoami: "usage: tracker whoami [--json]",
+  doctor:
+    "usage: tracker doctor [--json]\n\nVerifies config, token, REST/GraphQL connectivity, capabilities, cache.",
+};
+
+export function commandHelp(cmd: string): string {
+  return PER_COMMAND[cmd] ?? HELP;
+}
