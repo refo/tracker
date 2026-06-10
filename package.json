@@ -1,6 +1,6 @@
 {
   "name": "trackerctl",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Multi-backend issue-tracking CLI for humans and AI agents — claim races, dependencies, hierarchy, local FTS search, project memory. GitLab adapter first.",
   "license": "MIT",
   "author": "refo",
@@ -12,7 +12,13 @@
   "bin": {
     "tracker": "bin/tracker.mjs"
   },
-  "files": ["bin", "dist", "tracker.config.example.json", "README.md", "LICENSE"],
+  "files": [
+    "bin",
+    "dist",
+    "tracker.config.example.json",
+    "README.md",
+    "LICENSE"
+  ],
   "engines": {
     "bun": ">=1.1.0"
   },
