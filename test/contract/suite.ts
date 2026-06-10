@@ -258,6 +258,27 @@ export function runContractSuite(name: string, harness: ContractHarness): void {
       expect(claim.ok).toBe(false);
     });
 
+    test("comments round-trip: ordered oldest-first with correct authors", async () => {
+      const { adapter, secondAdapter } = await harness.make();
+      const item = await adapter.create({ title: "Discussion" });
+      await adapter.comment(item.id, "first note");
+      await secondAdapter.comment(item.id, "reply from the other agent");
+      await adapter.comment(item.id, "closing thought\nwith a second line");
+
+      const comments = await adapter.listComments(item.id);
+      expect(comments.map((c) => c.body)).toEqual([
+        "first note",
+        "reply from the other agent",
+        "closing thought\nwith a second line",
+      ]);
+      expect(comments.map((c) => c.author.username)).toEqual([
+        harness.usernames.first,
+        harness.usernames.second,
+        harness.usernames.first,
+      ]);
+      expect(comments.every((c) => typeof c.id === "string" && c.createdAt)).toBe(true);
+    });
+
     test("whoami and resolveUsers", async () => {
       const { adapter } = await harness.make();
       const me = await adapter.whoami();

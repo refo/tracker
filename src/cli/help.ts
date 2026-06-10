@@ -9,6 +9,7 @@ read commands (local cache, auto-sync when stale; all accept --json):
   children <id>              direct children of an item
   epic-status <id>           closed/total progress over an item's children
   search [text] [filters]    full-text + filters; --remote for server-side search
+  comments <id>              list an item's comments (oldest first)
   users <query>              resolve usernames/names to user ids
   whoami                     the authenticated user
   memories [filter]          list project memories
@@ -20,6 +21,7 @@ write commands:
   claim <id>                 race-safe claim (assigns you + in-progress label)
   release <id>               clear assignee/label, tombstone live claim tokens
   close <id> [--reason <text>]
+  comment <id> <text>        post a comment on an item
   dep <id> --blocked-by <other> | --blocks <other>
   parent <child-id> <parent-id>
   remember <key> <text>      store a project memory (key has no whitespace)
@@ -68,6 +70,18 @@ examples:
   tracker create -t "Subtask" --parent 12 --blocked-by 7,9`,
   close:
     'usage: tracker close <id> [--reason <text>]\n\nexample: tracker close 42 --reason "fixed in MR !17"',
+  comment: `usage: tracker comment <id> <text>
+
+Posts a comment on the item. Everything after the id is joined into one
+comment body, so quoting multi-word text is optional.
+
+example: tracker comment 42 "blocked on the design review, see thread"`,
+  comments: `usage: tracker comments <id> [--json]
+
+Lists the item's comments oldest-first (system notes are filtered out). Claim
+notes (🔒/🔓) and memory entries (📌) appear here too — useful for debugging.
+
+example: tracker comments 42 --json`,
   dep: `usage: tracker dep <id> --blocked-by <other> | --blocks <other>
 
 examples:
@@ -87,6 +101,7 @@ provider's server-side search instead (fresher, slower, no --parent).
 
 examples:
   tracker search --assignee mehmet
+  tracker search --state closed                # state alone is a valid filter
   tracker search "payment timeout" --label backend --state open
   tracker search checkout --remote --json`,
   users: "usage: tracker users <query> [--json]\n\nexample: tracker users mehmet",

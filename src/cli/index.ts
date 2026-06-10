@@ -265,6 +265,27 @@ async function cmdMemories(ctx: Ctx, args: ParsedArgs): Promise<void> {
   for (const m of memories) console.log(`${m.key}\t${m.ts}\t${m.text}`);
 }
 
+async function cmdComment(ctx: Ctx, args: ParsedArgs): Promise<void> {
+  const [idArg, ...textParts] = args.positionals;
+  const id = normalizeId(idArg);
+  const body = textParts.join(" ").trim();
+  if (!body) throw new UsageError(commandHelp("comment"));
+  await ctx.adapter.comment(id, body);
+  console.log(`commented on #${id}`);
+}
+
+async function cmdComments(ctx: Ctx, args: ParsedArgs): Promise<void> {
+  const id = normalizeId(args.positionals[0]);
+  const comments = await ctx.adapter.listComments(id);
+  if (args.flags.get("--json")) return printJson(comments);
+  if (comments.length === 0) return console.error(`(no comments on #${id})`);
+  for (const c of comments) {
+    console.log(`@${c.author.username}\t${c.createdAt}`);
+    console.log(c.body);
+    console.log("");
+  }
+}
+
 async function cmdSearch(ctx: Ctx, args: ParsedArgs): Promise<void> {
   const query: SearchQuery = {
     text: args.positionals.join(" ") || undefined,
@@ -277,7 +298,10 @@ async function cmdSearch(ctx: Ctx, args: ParsedArgs): Promise<void> {
   if (!["open", "closed", "all"].includes(query.state!)) {
     throw new UsageError("--state must be open, closed or all");
   }
-  if (!query.text && !query.assignee && !query.author && !query.label && !query.parent) {
+  // An explicit --state counts as a filter: `search --state closed` lists all closed items.
+  const hasFilter =
+    query.assignee || query.author || query.label || query.parent || args.flags.has("--state");
+  if (!query.text && !hasFilter) {
     throw new UsageError(commandHelp("search"));
   }
 
@@ -462,6 +486,8 @@ const VALUE_FLAGS: Record<string, Record<string, FlagKind>> = {
   whoami: { "--json": "bool" },
   doctor: { "--json": "bool" },
   memories: { "--json": "bool" },
+  comment: {},
+  comments: { "--json": "bool" },
   sync: {},
   claim: {},
   release: {},
@@ -516,6 +542,8 @@ export async function run(argv: string[]): Promise<number> {
     remember: cmdRemember,
     forget: cmdForget,
     memories: cmdMemories,
+    comment: cmdComment,
+    comments: cmdComments,
     search: cmdSearch,
     users: cmdUsers,
     whoami: cmdWhoami,

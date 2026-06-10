@@ -84,17 +84,39 @@ describe("CLI exit codes and usage", () => {
   });
 
   test("search with neither text nor filters → usage error", async () => {
-    const dir = emptyDir();
-    writeFileSync(
-      join(dir, "tracker.config.json"),
-      JSON.stringify({
-        provider: "gitlab",
-        gitlab: { base_url: "https://gitlab.example.com", project: "g/p" },
-      }),
-    );
-    writeFileSync(join(dir, ".env"), "TRACKER_GITLAB_TOKEN=local-test-token-not-real\n");
+    const dir = configuredDir();
     const r = await runCli(["search"], dir);
     expect(r.code).toBe(1);
     expect(r.stdout + r.stderr).toContain("usage: tracker search");
   });
+
+  test("search with only --state is accepted (fails later on network, not usage)", async () => {
+    const dir = configuredDir();
+    const r = await runCli(["search", "--state", "closed"], dir);
+    expect(r.code).toBe(1); // unreachable host in this test config
+    expect(r.stdout + r.stderr).not.toContain("usage: tracker search");
+  });
+
+  test("comment without text and comments without id → usage errors", async () => {
+    const dir = configuredDir();
+    const noText = await runCli(["comment", "42"], dir);
+    expect(noText.code).toBe(1);
+    expect(noText.stderr).toContain("usage: tracker comment");
+    const noId = await runCli(["comments"], dir);
+    expect(noId.code).toBe(1);
+    expect(noId.stderr).toContain("item id is required");
+  });
 });
+
+function configuredDir(): string {
+  const dir = emptyDir();
+  writeFileSync(
+    join(dir, "tracker.config.json"),
+    JSON.stringify({
+      provider: "gitlab",
+      gitlab: { base_url: "https://gitlab.example.com", project: "g/p" },
+    }),
+  );
+  writeFileSync(join(dir, ".env"), "TRACKER_GITLAB_TOKEN=local-test-token-not-real\n");
+  return dir;
+}

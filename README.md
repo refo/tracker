@@ -77,6 +77,7 @@ Read commands serve from a local sqlite cache that auto-syncs when older than
 | `tracker children <id>` | Direct children (work-item hierarchy) |
 | `tracker epic-status <id>` | `closed/total` progress over children |
 | `tracker search [text] [filters]` | Local FTS5 + filters; `--remote` for server-side |
+| `tracker comments <id>` | List an item's comments, oldest first (system notes hidden) |
 | `tracker users <query>` | Resolve usernames/names to user ids (project members) |
 | `tracker whoami` | Authenticated user |
 | `tracker doctor` | Config/token/connectivity/capability checks with fixes |
@@ -84,6 +85,7 @@ Read commands serve from a local sqlite cache that auto-syncs when older than
 | `tracker claim <id>` | Race-safe claim (see protocol below) |
 | `tracker release <id>` | Clear assignee + label, tombstone claim tokens |
 | `tracker close <id> [--reason <text>]` | Close (clears assignee + in-progress label) |
+| `tracker comment <id> <text>` | Post a comment on an item |
 | `tracker dep <id> --blocked-by <o> \| --blocks <o>` | Add a dependency edge |
 | `tracker parent <child> <parent>` | Re-parent an item |
 | `tracker remember <key> <text>` | Store a project memory |
@@ -95,7 +97,10 @@ Examples:
 ```sh
 tracker ready --parent 12 --json
 tracker search --assignee mehmet              # filters work with no text query
+tracker search --state closed                 # state alone is a valid filter
 tracker search "payment timeout" --label backend --state open
+tracker comment 42 "blocked on design review"
+tracker comments 42 --json
 tracker search checkout --remote --json       # fresher, server-side
 tracker create -t "Ship login" -d "OAuth" --parent 12 --blocked-by 7,9 -l auth,backend
 tracker claim 42 && do-the-work || echo "someone else got it"
@@ -137,7 +142,8 @@ domain refusal (e.g. lost a claim race) — pick different work, don't retry.
 - Find an issue:    `tracker search "<text>" --json`, or by person with no text:
                     `tracker search --assignee <user> --json`
 - Inspect:          `tracker show <id> --json`, `tracker children <id> --json`,
-                    `tracker epic-status <id> --json`
+                    `tracker epic-status <id> --json`, `tracker comments <id> --json`
+- Discuss:          `tracker comment <id> "<note for humans or other agents>"`
 - Project memory:   `tracker remember <key> "<fact>"`, `tracker memories --json`,
                     `tracker forget <key>`
 
@@ -175,6 +181,7 @@ Other shapes:
 ```jsonc
 // epic-status   { "parent": "12", "total": 5, "open": 2, "closed": 3, "pctClosed": 60 }
 // memories      [{ "key": "deploy-cmd", "text": "bun run deploy:prod", "ts": "2026-…" }]
+// comments      [{ "id": "991", "body": "…", "author": { "id": "1", "username": "alice" }, "createdAt": "2026-…" }]
 // users/whoami  [{ "id": "6377", "username": "alice", "name": "…" }]
 // doctor        { "ok": true, "checks": [{ "name": "auth", "status": "ok", "detail": "…", "fix": "…" }] }
 ```
