@@ -1,9 +1,20 @@
-import type { AdapterCapabilities, RemoteQuery, TrackerAdapter } from "../../src/adapters/types.ts";
+import type {
+  AdapterCapabilities,
+  MergeAdapter,
+  RemoteQuery,
+  TrackerAdapter,
+} from "../../src/adapters/types.ts";
+import { parseClosesIssues, withClosesTrailers } from "../../src/core/merge.ts";
 import { DomainError } from "../../src/errors.ts";
 import type {
+  Attachment,
+  AttachmentInput,
+  CiState,
   Comment,
   ItemId,
   ItemState,
+  PullRequest,
+  PullRequestDraft,
   User,
   WorkItem,
   WorkItemDraft,
@@ -17,9 +28,27 @@ import type {
 export class FakeBackend {
   items = new Map<ItemId, WorkItem>();
   comments = new Map<ItemId, Comment[]>();
+  uploads: Array<{ filename: string; content: Uint8Array }> = [];
+  prs = new Map<string, PullRequest>();
+  prComments = new Map<string, Comment[]>();
   users: User[] = [];
   private nextItemId = 1;
   private nextCommentId = 1;
+  private nextPrId = 1;
+
+  newPrId(): string {
+    return String(this.nextPrId++);
+  }
+
+  mustGetPr(id: string): PullRequest {
+    const pr = this.prs.get(id);
+    if (!pr) throw new DomainError(`PR !${id} not found`);
+    return pr;
+  }
+
+  setCi(prId: string, state: CiState): void {
+    this.mustGetPr(prId).ci = state;
+  }
 
   newItemId(): ItemId {
     return String(this.nextItemId++);
@@ -43,7 +72,7 @@ export class FakeBackend {
 
 const clone = <T>(v: T): T => structuredClone(v);
 
-export class FakeAdapter implements TrackerAdapter {
+export class FakeAdapter implements TrackerAdapter, MergeAdapter {
   readonly provider = "fake";
 
   constructor(
@@ -172,6 +201,18 @@ export class FakeAdapter implements TrackerAdapter {
     return clone(this.backend.comments.get(id) ?? []);
   }
 
+  async attach(id: ItemId, files: AttachmentInput[], message?: string): Promise<Attachment[]> {
+    this.backend.mustGet(id);
+    const attachments = files.map((f) => {
+      const n = this.backend.uploads.push({ filename: f.filename, content: f.content });
+      const url = `fake://uploads/${n}/${f.filename}`;
+      return { filename: f.filename, url, markdown: `![${f.filename}](${url})` };
+    });
+    const body = [message, ...attachments.map((a) => a.markdown)].filter(Boolean).join("\n\n");
+    await this.comment(id, body);
+    return attachments;
+  }
+
   async searchRemote(q: RemoteQuery): Promise<WorkItem[]> {
     const text = q.text?.toLowerCase();
     const state = q.state ?? "all";
@@ -188,6 +229,66 @@ export class FakeAdapter implements TrackerAdapter {
         return true;
       }),
     );
+  }
+
+  async prCreate(draft: PullRequestDraft): Promise<PullRequest> {
+    const id = this.backend.newPrId();
+    const description = withClosesTrailers(draft.description ?? "", draft.issues ?? []);
+    const pr: PullRequest = {
+      id,
+      title: draft.title,
+      state: "open",
+      source: draft.source,
+      target: draft.target,
+      draft: draft.draft ?? false,
+      ci: "none",
+      closesIssues: parseClosesIssues(description),
+      url: `fake://pr/${id}`,
+      description,
+      updatedAt: new Date().toISOString(),
+    };
+    this.backend.prs.set(id, pr);
+    this.backend.prComments.set(id, []);
+    return clone(pr);
+  }
+
+  async prGet(id: string): Promise<PullRequest> {
+    const pr = this.backend.mustGetPr(id);
+    return clone({ ...pr, closesIssues: parseClosesIssues(pr.description) });
+  }
+
+  async prMerge(id: string): Promise<void> {
+    const pr = this.backend.mustGetPr(id);
+    if (pr.state !== "open") throw new DomainError(`PR !${id} is ${pr.state}, cannot merge`);
+    pr.state = "merged";
+    pr.updatedAt = new Date().toISOString();
+  }
+
+  async prComment(id: string, body: string): Promise<void> {
+    this.backend.mustGetPr(id);
+    this.backend.prComments.get(id)!.push({
+      id: this.backend.newCommentId(),
+      body,
+      author: clone(this.me),
+      createdAt: new Date().toISOString(),
+    });
+  }
+
+  async prListComments(id: string): Promise<Comment[]> {
+    this.backend.mustGetPr(id);
+    return clone(this.backend.prComments.get(id) ?? []);
+  }
+
+  async prClose(id: string): Promise<void> {
+    const pr = this.backend.mustGetPr(id);
+    if (pr.state === "merged") throw new DomainError(`PR !${id} is already merged`);
+    pr.state = "closed";
+  }
+
+  async prReopen(id: string): Promise<void> {
+    const pr = this.backend.mustGetPr(id);
+    if (pr.state === "merged") throw new DomainError(`PR !${id} is already merged`);
+    pr.state = "open";
   }
 
   async resolveUsers(query: string): Promise<User[]> {

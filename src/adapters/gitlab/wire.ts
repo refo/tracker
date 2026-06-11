@@ -31,6 +31,29 @@ export interface GitLabNote {
   system?: boolean;
 }
 
+/** Response of POST /projects/:id/uploads. */
+export interface GitLabUpload {
+  /** Instance-relative URL, e.g. "/uploads/<hash>/file.png". */
+  url: string;
+  /** Project-rooted path, e.g. "/-/project/999/uploads/<hash>/file.png". */
+  full_path: string;
+  markdown: string;
+}
+
+/** Single-MR GET/POST/PUT response subset (the list endpoint omits head_pipeline). */
+export interface GitLabMergeRequest {
+  iid: number;
+  title: string;
+  description: string | null;
+  state: "opened" | "closed" | "merged" | "locked";
+  source_branch: string;
+  target_branch: string;
+  draft?: boolean;
+  web_url: string;
+  updated_at: string;
+  head_pipeline?: { status: string } | null;
+}
+
 export interface WorkItemNode {
   iid: string;
   workItemType: { name: string };

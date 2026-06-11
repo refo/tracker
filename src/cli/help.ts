@@ -26,12 +26,23 @@ write commands:
   release <id>               clear assignee/label, tombstone live claim tokens
   close <id> [--reason <text>]
   comment <id> <text>        post a comment on an item
+  attach <id> <file...> [-m <message>]
+                             upload files and attach them via a comment
   spend <id> <duration>      add time spent (1h30m, 45m, 2d; -30m subtracts)
   estimate <id> <duration>   set the time estimate (0 clears it)
   dep <id> --blocked-by <other> | --blocks <other>
   parent <child-id> <parent-id>
   remember <key> <text>      store a project memory (key has no whitespace)
   forget <key>               hide a memory key
+
+pull/merge requests ("pr" and "mr" are the same command):
+  pr create -t <title> --target <branch> [--source <branch>] [-d <desc>]
+            [-i <issue-ids>] [--draft] [--json]
+  pr status <id> [--json]    state + provider-neutral ci signal (none|pending|green|red)
+  pr merge <id> [--close-issues]
+  pr comment <id> <text>
+  pr comments <id> [--json]
+  pr close <id> [-m <reason>] | pr reopen <id>
 
 search filters:
   --assignee <user> --author <user> --label <l> --state open|closed|all
@@ -82,6 +93,42 @@ Posts a comment on the item. Everything after the id is joined into one
 comment body, so quoting multi-word text is optional.
 
 example: tracker comment 42 "blocked on the design review, see thread"`,
+  attach: `usage: tracker attach <id> <file...> [-m <message>] [--json]
+
+Uploads each file to the provider and posts ONE comment on the item containing
+the optional message plus a markdown reference per file, so the attachments are
+discoverable from the item itself. Prints each file's markdown snippet (reusable
+in descriptions); --json emits [{filename, url, markdown}].
+
+examples:
+  tracker attach 42 before.png after.png -m "reference screenshots"
+  tracker attach 42 design.png --json`,
+  pr: `usage: tracker pr <action> …    (alias: tracker mr)
+
+actions:
+  create -t <title> --target <branch> [--source <branch>] [-d <desc>]
+         [-i <id1,id2>] [--draft] [--json]
+                      open a PR/MR; --source defaults to the current git branch.
+                      -i records "Closes #N" trailers so merge --close-issues
+                      can close those issues explicitly (no provider magic).
+  status <id> [--json]
+                      state (open|merged|closed) + ci signal (none|pending|green|red);
+                      poll this to watch a pipeline.
+  merge <id> [--close-issues]
+                      merge; --close-issues then closes every trailer-referenced
+                      issue via the issue tracker and comments why.
+  comment <id> <text> post a comment
+  comments <id> [--json]
+                      list comments oldest-first
+  close <id> [-m <reason>]
+                      close without merging ("reject"); reason posts as a comment
+  reopen <id>
+
+examples:
+  tracker pr create -t "Fix login" --target dev -i 42 --json
+  tracker pr status 5 --json
+  tracker pr merge 5 --close-issues
+  tracker pr close 5 -m "superseded by !6"`,
   comments: `usage: tracker comments <id> [--json]
 
 Lists the item's comments oldest-first (system notes are filtered out). Claim

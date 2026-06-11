@@ -89,6 +89,7 @@ Read commands serve from a local sqlite cache that auto-syncs when older than
 | `tracker release <id>` | Clear assignee + label, tombstone claim tokens |
 | `tracker close <id> [--reason <text>]` | Close (clears assignee + in-progress label) |
 | `tracker comment <id> <text>` | Post a comment on an item |
+| `tracker attach <id> <file...> [-m <msg>]` | Upload files, reference them from one comment; prints markdown |
 | `tracker spend <id> <duration>` | Add time spent (`1h30m`, `2d`; `-30m` subtracts) |
 | `tracker estimate <id> <duration>` | Set the time estimate (`0` clears it) |
 | `tracker dep <id> --blocked-by <o> \| --blocks <o>` | Add a dependency edge |
@@ -96,6 +97,16 @@ Read commands serve from a local sqlite cache that auto-syncs when older than
 | `tracker remember <key> <text>` | Store a project memory |
 | `tracker forget <key>` | Hide a memory key |
 | `tracker memories [filter]` | List memories (latest per key wins) |
+| `tracker pr create -t <title> --target <b> …` | Open a PR/MR (`mr` is an alias); `-i 42,43` records Closes trailers |
+| `tracker pr status <id>` | State + provider-neutral CI signal (`none\|pending\|green\|red`) |
+| `tracker pr merge <id> [--close-issues]` | Merge; `--close-issues` closes trailer-referenced issues explicitly |
+| `tracker pr comment/comments/close/reopen` | Discuss, reject (`close -m <reason>`), reopen |
+
+Issues and PRs are **separate capability ports**: `provider` selects where issues live,
+`merge_provider` (defaults to `provider`) selects where PRs live — so a Jira + GitHub
+mix needs no core changes, only adapters. Issue closing on merge is always explicit via
+the issues port: GitLab's `Closes #N` magic only fires on default-branch targets, and a
+GitHub PR can never auto-close a Jira issue, so tracker never relies on provider magic.
 
 Examples:
 
@@ -106,6 +117,7 @@ tracker search --state closed                 # state alone is a valid filter
 tracker search "payment timeout" --label backend --state open
 tracker comment 42 "blocked on design review"
 tracker comments 42 --json
+tracker attach 42 before.png after.png -m "reference screenshots"
 tracker spend 42 1h30m                        # durations: w/d/h/m/s, 1d=8h, 1w=5d
 tracker estimate 42 2d
 tracker search checkout --remote --json       # fresher, server-side
@@ -113,6 +125,9 @@ tracker create -t "Ship login" -d "OAuth" --parent 12 --blocked-by 7,9 -l auth,b
 tracker claim 42 && do-the-work || echo "someone else got it"
 tracker close 42 --reason "fixed in MR !17"
 tracker remember deploy-cmd "bun run deploy:prod"
+tracker pr create -t "Fix login" --target dev -i 42 --json
+tracker pr status 5 --json                    # poll for ci green/red
+tracker pr merge 5 --close-issues
 ```
 
 Exit codes: **0** success · **2** domain failure (lost claim race, refused claim, not
@@ -151,6 +166,15 @@ domain refusal (e.g. lost a claim race) — pick different work, don't retry.
 - Inspect:          `tracker show <id> --json`, `tracker children <id> --json`,
                     `tracker epic-status <id> --json`, `tracker comments <id> --json`
 - Discuss:          `tracker comment <id> "<note for humans or other agents>"`
+- Attach evidence:  `tracker attach <id> <files...> -m "<context>" --json` — uploads
+                    screenshots/files and references them from a comment; reuse the
+                    returned markdown in descriptions
+- Open a PR/MR:     `tracker pr create -t "<title>" --target <branch> -i <issue-ids> --json`
+                    (source defaults to the current branch)
+- Watch the CI:     `tracker pr status <id> --json` — poll until `.ci` is "green" or "red"
+- Land it:          `tracker pr merge <id> --close-issues` — also closes the `-i` issues
+                    with a comment explaining why; never rely on provider auto-close
+
 - Track time:       `tracker spend <id> 1h30m` after finishing work (estimate vs spent
                     feeds later evaluations; durations use 1d=8h, -30m subtracts)
 - Project memory:   `tracker remember <key> "<fact>"`, `tracker memories --json`,

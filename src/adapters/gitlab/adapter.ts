@@ -1,17 +1,30 @@
+import { parseClosesIssues, withClosesTrailers } from "../../core/merge.ts";
 import { DomainError, UsageError } from "../../errors.ts";
 import type {
+  Attachment,
+  AttachmentInput,
+  CiState,
   Comment,
   ItemId,
   ItemState,
+  PullRequest,
+  PullRequestDraft,
   User,
   WorkItem,
   WorkItemDraft,
   WorkItemPatch,
 } from "../../model/types.ts";
-import type { AdapterCapabilities, RemoteQuery, TrackerAdapter } from "../types.ts";
+import type { AdapterCapabilities, MergeAdapter, RemoteQuery, TrackerAdapter } from "../types.ts";
 import { type FetchLike, GitLabClient, GitLabHttpError } from "./client.ts";
 import { type HierarchyInfo, mapIssue, mapUser, upsertBlockedByTrailer } from "./map.ts";
-import type { GitLabIssue, GitLabNote, GitLabUser, WorkItemsPage } from "./wire.ts";
+import type {
+  GitLabIssue,
+  GitLabMergeRequest,
+  GitLabNote,
+  GitLabUpload,
+  GitLabUser,
+  WorkItemsPage,
+} from "./wire.ts";
 
 export interface GitLabAdapterOptions {
   baseUrl: string;
@@ -71,9 +84,34 @@ mutation trackerWorkItemSetParent($input: WorkItemUpdateInput!) {
   }
 }`;
 
-export class GitLabAdapter implements TrackerAdapter {
+/** GitLab pipeline statuses → the provider-neutral CI signal. */
+function mapCiStatus(status: string | null | undefined): CiState {
+  if (!status) return "none";
+  if (status === "success") return "green";
+  if (status === "failed" || status === "canceled") return "red";
+  return "pending";
+}
+
+function mapMr(mr: GitLabMergeRequest): PullRequest {
+  return {
+    id: String(mr.iid),
+    title: mr.title,
+    state: mr.state === "merged" ? "merged" : mr.state === "opened" ? "open" : "closed",
+    source: mr.source_branch,
+    target: mr.target_branch,
+    draft: mr.draft ?? /^draft:/i.test(mr.title),
+    ci: mapCiStatus(mr.head_pipeline?.status),
+    closesIssues: parseClosesIssues(mr.description ?? ""),
+    url: mr.web_url,
+    description: mr.description ?? "",
+    updatedAt: mr.updated_at,
+  };
+}
+
+export class GitLabAdapter implements TrackerAdapter, MergeAdapter {
   readonly provider = "gitlab";
   private client: GitLabClient;
+  private baseUrl: string;
   private projectRef: string;
   private fullPath: string | null;
   private nativeBlocking: boolean;
@@ -86,6 +124,7 @@ export class GitLabAdapter implements TrackerAdapter {
       token: opts.token,
       fetchImpl: opts.fetchImpl,
     });
+    this.baseUrl = opts.baseUrl.replace(/\/+$/, "");
     this.projectRef = encodeURIComponent(opts.project);
     this.fullPath = /^\d+$/.test(opts.project) ? null : opts.project;
     this.nativeBlocking = opts.nativeBlocking;
@@ -367,6 +406,116 @@ export class GitLabAdapter implements TrackerAdapter {
         author: mapUser(n.author),
         createdAt: n.created_at,
       }));
+  }
+
+  async prCreate(draft: PullRequestDraft): Promise<PullRequest> {
+    const title =
+      draft.draft && !/^draft:/i.test(draft.title) ? `Draft: ${draft.title}` : draft.title;
+    const mr = await this.client.rest<GitLabMergeRequest>(
+      `projects/${this.projectRef}/merge_requests`,
+      {
+        method: "POST",
+        body: {
+          title,
+          source_branch: draft.source,
+          target_branch: draft.target,
+          description: withClosesTrailers(draft.description ?? "", draft.issues ?? []),
+        },
+      },
+    );
+    return mapMr(mr);
+  }
+
+  async prGet(id: string): Promise<PullRequest> {
+    try {
+      const mr = await this.client.rest<GitLabMergeRequest>(
+        `projects/${this.projectRef}/merge_requests/${id}`,
+      );
+      return mapMr(mr);
+    } catch (e) {
+      if (e instanceof GitLabHttpError && e.status === 404) {
+        throw new DomainError(`PR !${id} not found`);
+      }
+      throw e;
+    }
+  }
+
+  async prMerge(id: string): Promise<void> {
+    try {
+      await this.client.rest(`projects/${this.projectRef}/merge_requests/${id}/merge`, {
+        method: "PUT",
+      });
+    } catch (e) {
+      // GitLab refuses with 405/406/409/422 when the MR is not open or not mergeable
+      if (e instanceof GitLabHttpError && [405, 406, 409, 422].includes(e.status)) {
+        throw new DomainError(`GitLab refuses to merge !${id}: ${e.message}`);
+      }
+      throw e;
+    }
+  }
+
+  async prComment(id: string, body: string): Promise<void> {
+    await this.client.rest(`projects/${this.projectRef}/merge_requests/${id}/notes`, {
+      method: "POST",
+      body: { body },
+    });
+  }
+
+  async prListComments(id: string): Promise<Comment[]> {
+    const notes = await this.client.rest<GitLabNote[]>(
+      `projects/${this.projectRef}/merge_requests/${id}/notes`,
+      { query: { sort: "asc", order_by: "created_at" }, paginate: true },
+    );
+    return notes
+      .filter((n) => !n.system)
+      .map((n) => ({
+        id: String(n.id),
+        body: n.body,
+        author: mapUser(n.author),
+        createdAt: n.created_at,
+      }));
+  }
+
+  private async prStateEvent(id: string, event: "close" | "reopen"): Promise<void> {
+    try {
+      await this.client.rest(`projects/${this.projectRef}/merge_requests/${id}`, {
+        method: "PUT",
+        body: { state_event: event },
+      });
+    } catch (e) {
+      if (e instanceof GitLabHttpError && e.status === 422) {
+        throw new DomainError(`cannot ${event} PR !${id}: ${e.message}`);
+      }
+      throw e;
+    }
+  }
+
+  async prClose(id: string): Promise<void> {
+    return this.prStateEvent(id, "close");
+  }
+
+  async prReopen(id: string): Promise<void> {
+    return this.prStateEvent(id, "reopen");
+  }
+
+  async attach(id: ItemId, files: AttachmentInput[], message?: string): Promise<Attachment[]> {
+    const attachments: Attachment[] = [];
+    for (const file of files) {
+      const form = new FormData();
+      form.set("file", new Blob([file.content as BlobPart]), file.filename);
+      const up = await this.client.upload<GitLabUpload>(
+        `projects/${this.projectRef}/uploads`,
+        form,
+      );
+      attachments.push({
+        filename: file.filename,
+        url: `${this.baseUrl}${up.full_path ?? up.url}`,
+        markdown: up.markdown,
+      });
+    }
+    const body = [message, ...attachments.map((a) => a.markdown)].filter(Boolean).join("\n\n");
+    await this.comment(id, body);
+    return attachments;
   }
 
   async searchRemote(q: RemoteQuery): Promise<WorkItem[]> {

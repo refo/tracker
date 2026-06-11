@@ -114,6 +114,72 @@ describe("CLI exit codes and usage", () => {
     expect(noDuration.stderr).toContain("usage: tracker spend");
   });
 
+  test("attach without files → usage; missing file rejected before any network call", async () => {
+    const dir = configuredDir();
+    const noFiles = await runCli(["attach", "42"], dir);
+    expect(noFiles.code).toBe(1);
+    expect(noFiles.stderr).toContain("usage: tracker attach");
+
+    const missing = await runCli(["attach", "42", "no-such-screenshot.png"], dir);
+    expect(missing.code).toBe(1);
+    expect(missing.stderr).toContain("no-such-screenshot.png");
+    expect(missing.stderr).not.toContain("usage: tracker attach");
+  });
+
+  test("attach with an existing file proceeds past validation (fails on network, not usage)", async () => {
+    const dir = configuredDir();
+    writeFileSync(join(dir, "shot.png"), "png-bytes");
+    const r = await runCli(["attach", "42", "shot.png", "-m", "evidence"], dir);
+    expect(r.code).toBe(1); // unreachable host in this test config
+    expect(r.stdout + r.stderr).not.toContain("usage: tracker attach");
+    expect(r.stderr).not.toContain("shot.png: no such file");
+  });
+
+  test("pr: missing/unknown action and missing required flags → usage before network", async () => {
+    const dir = configuredDir();
+    const noAction = await runCli(["pr"], dir);
+    expect(noAction.code).toBe(1);
+    expect(noAction.stderr).toContain("usage: tracker pr");
+
+    const badAction = await runCli(["pr", "frobnicate"], dir);
+    expect(badAction.code).toBe(1);
+    expect(badAction.stderr).toContain("usage: tracker pr");
+
+    const noTitle = await runCli(["pr", "create", "--target", "dev", "--source", "x"], dir);
+    expect(noTitle.code).toBe(1);
+    expect(noTitle.stderr).toContain("--title");
+
+    const noTarget = await runCli(["pr", "create", "-t", "Fix", "--source", "x"], dir);
+    expect(noTarget.code).toBe(1);
+    expect(noTarget.stderr).toContain("--target");
+
+    const noText = await runCli(["pr", "comment", "5"], dir);
+    expect(noText.code).toBe(1);
+    expect(noText.stderr).toContain("usage: tracker pr");
+  });
+
+  test("mr is an alias for pr", async () => {
+    const dir = configuredDir();
+    const r = await runCli(["mr", "create", "--target", "dev", "--source", "x"], dir);
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain("--title");
+  });
+
+  test("unsupported merge_provider → config error naming the field", async () => {
+    const dir = emptyDir();
+    writeFileSync(
+      join(dir, "tracker.config.json"),
+      JSON.stringify({
+        provider: "gitlab",
+        merge_provider: "github",
+        gitlab: { base_url: "https://gitlab.example.com", project: "g/p" },
+      }),
+    );
+    const r = await runCli(["pr", "status", "5"], dir);
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain("merge_provider");
+  });
+
   test("comment without text and comments without id → usage errors", async () => {
     const dir = configuredDir();
     const noText = await runCli(["comment", "42"], dir);

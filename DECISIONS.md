@@ -100,6 +100,24 @@
   wire so the server-side day length never disagrees. Negative spend (`-30m`) subtracts;
   going below zero is refused. Cache migration adds the two columns to pre-existing caches.
 
+- **Attachments (added 2026-06-11)**: `attach(id, files, message?)` on the issues port —
+  uploads via GitLab's project uploads API (multipart), then posts ONE comment containing the
+  message plus every file's markdown reference, so attachments are discoverable from the item
+  by a zero-context reader (the contract asserts this). CLI prints the markdown snippets for
+  reuse in descriptions. Motivated by spec-workflow screenshots that previously had no home.
+- **Merge port (added 2026-06-11)**: PRs/MRs are a SEPARATE capability port (`MergeAdapter`:
+  prCreate/prGet/prMerge/prComment/prListComments/prClose/prReopen) selected by
+  `merge_provider` in config (defaults to `provider`) — issues and code hosting are different
+  capabilities (Jira + GitHub is a common real-world mix). PR↔issue linkage is `Closes #N`
+  trailers written into the description on create and parsed back on get; closing on merge is
+  ALWAYS explicit via the issues port (`mergeAndCloseIssues` in core, `pr merge
+  --close-issues` in the CLI) because GitLab auto-close only fires on default-branch targets
+  and cross-provider auto-close cannot exist. CI status is collapsed to a provider-neutral
+  signal (`none|pending|green|red`) read from the single-MR `head_pipeline`; agents poll
+  `pr status --json`. "Rejected" is intentionally not a state — it's `pr close -m <reason>`,
+  matching both providers' reality. Review threads and approvals are deferred until an
+  address-review workflow needs them.
+
 ## Verification record (2026-06-10)
 
 - `bun run gate`: typecheck clean, biome clean, **94 tests / 0 fail** (unit + contract suite

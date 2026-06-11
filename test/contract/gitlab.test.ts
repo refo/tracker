@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { GitLabAdapter } from "../../src/adapters/gitlab/adapter.ts";
 import { FakeGitLabServer } from "../helpers/fake-gitlab-server.ts";
+import { runMergeContractSuite } from "./merge-suite.ts";
 import { runContractSuite } from "./suite.ts";
 
 const BASE = "https://gitlab.example.com";
@@ -32,6 +33,22 @@ runContractSuite("GitLabAdapter over mocked HTTP", {
     return {
       adapter: makeAdapter(server, TOKEN_A),
       secondAdapter: makeAdapter(server, TOKEN_B),
+    };
+  },
+});
+
+runMergeContractSuite("GitLabAdapter over mocked HTTP", {
+  async make() {
+    const server = makeServer();
+    const adapter = makeAdapter(server, TOKEN_A);
+    return {
+      merge: adapter,
+      issues: adapter,
+      setCi: (prId, state) =>
+        server.setPipeline(
+          Number(prId),
+          state === "green" ? "success" : state === "red" ? "failed" : "running",
+        ),
     };
   },
 });

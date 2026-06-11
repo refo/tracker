@@ -49,7 +49,8 @@ export class GitLabClient {
         ...init,
         headers: {
           Authorization: `Bearer ${this.token}`,
-          "Content-Type": "application/json",
+          // FormData bodies must let fetch set the multipart boundary itself.
+          ...(init.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
           ...(init.headers ?? {}),
         },
       });
@@ -100,6 +101,13 @@ export class GitLabClient {
       page = Number(next);
     }
     return all as T;
+  }
+
+  /** Multipart POST (file uploads). */
+  async upload<T>(path: string, form: FormData): Promise<T> {
+    const url = `${this.baseUrl}/api/v4/${path.replace(/^\//, "")}`;
+    const res = await this.request(url, { method: "POST", body: form });
+    return (await res.json()) as T;
   }
 
   async graphql<T>(query: string, variables: Record<string, unknown> = {}): Promise<T> {

@@ -1,5 +1,6 @@
 {
   "provider": "gitlab",
+  "merge_provider": "gitlab",
   "gitlab": {
     "base_url": "https://gitlab.example.com",
     "project": "group/project",

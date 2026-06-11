@@ -4,6 +4,8 @@ import { UsageError, registerSecret } from "./errors.ts";
 
 export interface TrackerConfig {
   provider: "gitlab";
+  /** Where PRs/MRs live; defaults to `provider`. Issues and code hosting are separate capabilities. */
+  merge_provider: "gitlab";
   gitlab: {
     base_url: string;
     project: string;
@@ -32,6 +34,7 @@ export function findConfigFile(startDir: string): string | null {
 
 interface RawConfig {
   provider?: string;
+  merge_provider?: string;
   gitlab?: {
     base_url?: string;
     project?: string;
@@ -53,6 +56,11 @@ export function parseConfig(json: string, rootDir: string): TrackerConfig {
   if (raw.provider !== "gitlab") {
     throw new UsageError(`unsupported provider "${raw.provider}" (only "gitlab" for now)`);
   }
+  if ((raw.merge_provider ?? raw.provider) !== "gitlab") {
+    throw new UsageError(
+      `unsupported merge_provider "${raw.merge_provider}" (only "gitlab" for now)`,
+    );
+  }
   const g = raw.gitlab ?? {};
   if (!g.base_url) throw new UsageError("config: gitlab.base_url is required");
   if (!g.project) throw new UsageError("config: gitlab.project is required");
@@ -64,6 +72,7 @@ export function parseConfig(json: string, rootDir: string): TrackerConfig {
         : [g.token_env];
   return {
     provider: "gitlab",
+    merge_provider: "gitlab",
     gitlab: {
       base_url: g.base_url.replace(/\/+$/, ""),
       project: String(g.project),

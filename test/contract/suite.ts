@@ -279,6 +279,45 @@ export function runContractSuite(name: string, harness: ContractHarness): void {
       expect(comments.every((c) => typeof c.id === "string" && c.createdAt)).toBe(true);
     });
 
+    test("attach: files upload, return per-file markdown, and are reachable via a comment", async () => {
+      const { adapter } = await harness.make();
+      const item = await adapter.create({ title: "Visual bug" });
+      const attachments = await adapter.attach(
+        item.id,
+        [
+          { filename: "before.png", content: new TextEncoder().encode("png-bytes-before") },
+          { filename: "after.png", content: new TextEncoder().encode("png-bytes-after") },
+        ],
+        "reference screenshots",
+      );
+
+      expect(attachments).toHaveLength(2);
+      expect(attachments[0]!.filename).toBe("before.png");
+      expect(attachments[1]!.filename).toBe("after.png");
+      for (const att of attachments) {
+        expect(att.url).toBeTruthy();
+        expect(att.markdown).toContain(att.filename);
+      }
+      // distinct files must not collide on the same URL
+      expect(attachments[0]!.url).not.toBe(attachments[1]!.url);
+
+      // zero-context reachability: a fresh reader finds the files on the item itself
+      const bodies = (await adapter.listComments(item.id)).map((c) => c.body).join("\n");
+      expect(bodies).toContain("reference screenshots");
+      expect(bodies).toContain(attachments[0]!.markdown);
+      expect(bodies).toContain(attachments[1]!.markdown);
+    });
+
+    test("attach without a message still references every file from the item", async () => {
+      const { adapter } = await harness.make();
+      const item = await adapter.create({ title: "Screenshot only" });
+      const [att] = await adapter.attach(item.id, [
+        { filename: "evidence.png", content: new TextEncoder().encode("png-bytes") },
+      ]);
+      const bodies = (await adapter.listComments(item.id)).map((c) => c.body).join("\n");
+      expect(bodies).toContain(att!.markdown);
+    });
+
     test("time tracking: spend accumulates, negative subtracts, estimate sets/clears", async () => {
       const { adapter } = await harness.make();
       if (!adapter.capabilities().timeTracking) return;

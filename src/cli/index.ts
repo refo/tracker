@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
-import { existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { basename, resolve } from "node:path";
 import { GitLabAdapter } from "../adapters/gitlab/adapter.ts";
 import type { TrackerAdapter } from "../adapters/types.ts";
 import { Cache } from "../cache/db.ts";
@@ -10,6 +10,7 @@ import { claimItem, releaseItem } from "../core/claim.ts";
 import { formatDuration, parseDuration } from "../core/duration.ts";
 import { normalizeId } from "../core/ids.ts";
 import { forget, listMemories, remember } from "../core/memory.ts";
+import { mergeAndCloseIssues } from "../core/merge.ts";
 import { computeEpicStatus, computeReady } from "../core/ready.ts";
 import { type SearchQuery, searchLocal } from "../core/search.ts";
 import { ensureFresh, syncCache } from "../core/sync.ts";
@@ -312,6 +313,126 @@ async function cmdComment(ctx: Ctx, args: ParsedArgs): Promise<void> {
   console.log(`commented on #${id}`);
 }
 
+async function cmdAttach(ctx: Ctx, args: ParsedArgs): Promise<void> {
+  const [idArg, ...paths] = args.positionals;
+  const id = normalizeId(idArg);
+  if (paths.length === 0) throw new UsageError(commandHelp("attach"));
+  const files = paths.map((p) => {
+    if (!existsSync(p)) throw new UsageError(`${p}: no such file`);
+    return { filename: basename(p), content: new Uint8Array(readFileSync(p)) };
+  });
+  const attachments = await ctx.adapter.attach(id, files, str(args, "--message"));
+  if (args.flags.get("--json")) return printJson(attachments);
+  for (const a of attachments) console.log(a.markdown);
+  console.error(`attached ${attachments.length} file(s) to #${id}`);
+}
+
+/** PR ids tolerate GitLab's "!5" and "#5" spellings. */
+function normalizePrId(raw: string | undefined): string {
+  if (!raw) throw new UsageError("PR id is required");
+  return raw.replace(/^[!#]/, "");
+}
+
+function currentGitBranch(): string {
+  const proc = Bun.spawnSync(["git", "rev-parse", "--abbrev-ref", "HEAD"]);
+  const branch = proc.success ? proc.stdout.toString().trim() : "";
+  if (!branch || branch === "HEAD") {
+    throw new UsageError("could not determine the current git branch — pass --source");
+  }
+  return branch;
+}
+
+async function cmdPr(ctx: Ctx, args: ParsedArgs): Promise<void> {
+  const [action, ...positionals] = args.positionals;
+  const json = args.flags.get("--json");
+
+  switch (action) {
+    case "create": {
+      const title = str(args, "--title");
+      const target = str(args, "--target");
+      if (!title) throw new UsageError(`--title is required\n\n${commandHelp("pr")}`);
+      if (!target) throw new UsageError(`--target is required\n\n${commandHelp("pr")}`);
+      const pr = await ctx.adapter.prCreate({
+        title,
+        target,
+        source: str(args, "--source") ?? currentGitBranch(),
+        description: str(args, "--description"),
+        draft: args.flags.get("--draft") === true,
+        issues: (str(args, "--issue") ?? "")
+          .split(",")
+          .filter(Boolean)
+          .map((s) => s.replace(/^#/, "")),
+      });
+      if (json) return printJson(pr);
+      console.log(pr.url);
+      console.error(`created PR !${pr.id}: ${pr.source} → ${pr.target}`);
+      return;
+    }
+    case "status": {
+      const pr = await ctx.adapter.prGet(normalizePrId(positionals[0]));
+      if (json) return printJson(pr);
+      const closes = pr.closesIssues.length
+        ? ` · closes ${pr.closesIssues.map((i) => `#${i}`).join(",")}`
+        : "";
+      console.log(`!${pr.id} ${pr.state} · ci ${pr.ci}${pr.draft ? " · draft" : ""}${closes}`);
+      console.log(pr.url);
+      return;
+    }
+    case "merge": {
+      const id = normalizePrId(positionals[0]);
+      if (args.flags.get("--close-issues")) {
+        const { closed } = await mergeAndCloseIssues(ctx.adapter, ctx.adapter, id);
+        invalidate(ctx);
+        console.log(
+          closed.length
+            ? `merged !${id}, closed ${closed.map((i) => `#${i}`).join(", ")}`
+            : `merged !${id} (no Closes trailers found)`,
+        );
+      } else {
+        await ctx.adapter.prMerge(id);
+        console.log(`merged !${id}`);
+      }
+      return;
+    }
+    case "comment": {
+      const id = normalizePrId(positionals[0]);
+      const body = positionals.slice(1).join(" ").trim();
+      if (!body) throw new UsageError(commandHelp("pr"));
+      await ctx.adapter.prComment(id, body);
+      console.log(`commented on !${id}`);
+      return;
+    }
+    case "comments": {
+      const id = normalizePrId(positionals[0]);
+      const comments = await ctx.adapter.prListComments(id);
+      if (json) return printJson(comments);
+      if (comments.length === 0) return console.error(`(no comments on !${id})`);
+      for (const c of comments) {
+        console.log(`@${c.author.username}\t${c.createdAt}`);
+        console.log(c.body);
+        console.log("");
+      }
+      return;
+    }
+    case "close": {
+      const id = normalizePrId(positionals[0]);
+      const reason = str(args, "--message");
+      if (reason) await ctx.adapter.prComment(id, reason);
+      await ctx.adapter.prClose(id);
+      console.log(`closed !${id}`);
+      return;
+    }
+    case "reopen": {
+      const id = normalizePrId(positionals[0]);
+      await ctx.adapter.prReopen(id);
+      console.log(`reopened !${id}`);
+      return;
+    }
+    default:
+      throw new UsageError(commandHelp("pr"));
+  }
+}
+
 async function cmdComments(ctx: Ctx, args: ParsedArgs): Promise<void> {
   const id = normalizeId(args.positionals[0]);
   const comments = await ctx.adapter.listComments(id);
@@ -541,6 +662,18 @@ const VALUE_FLAGS: Record<string, Record<string, FlagKind>> = {
   memories: { "--json": "bool" },
   comment: {},
   comments: { "--json": "bool" },
+  attach: { "--message": "value", "--json": "bool" },
+  pr: {
+    "--title": "value",
+    "--description": "value",
+    "--source": "value",
+    "--target": "value",
+    "--issue": "value",
+    "--draft": "bool",
+    "--close-issues": "bool",
+    "--message": "value",
+    "--json": "bool",
+  },
   spend: {},
   estimate: {},
   sync: {},
@@ -560,10 +693,14 @@ const ALIASES: Record<string, Record<string, string>> = {
     "-m": "--milestone",
   },
   close: { "-r": "--reason" },
+  attach: { "-m": "--message" },
+  pr: { "-t": "--title", "-d": "--description", "-m": "--message", "-i": "--issue" },
 };
 
 export async function run(argv: string[]): Promise<number> {
-  const [cmd, ...rest] = argv;
+  const [rawCmd, ...rest] = argv;
+  // "mr" is the GitLab spelling of "pr" — same command either way.
+  const cmd = rawCmd === "mr" ? "pr" : rawCmd;
   if (!cmd || cmd === "help" || cmd === "--help" || cmd === "-h") {
     console.log(HELP);
     return cmd ? 0 : 1;
@@ -604,6 +741,8 @@ export async function run(argv: string[]): Promise<number> {
     memories: cmdMemories,
     comment: cmdComment,
     comments: cmdComments,
+    attach: cmdAttach,
+    pr: cmdPr,
     spend: cmdSpend,
     estimate: cmdEstimate,
     search: cmdSearch,

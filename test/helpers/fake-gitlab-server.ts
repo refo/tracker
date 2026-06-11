@@ -27,6 +27,17 @@ interface StoredLink {
   link_type: "blocks" | "relates_to";
 }
 
+interface StoredMr {
+  iid: number;
+  title: string;
+  description: string;
+  state: "opened" | "closed" | "merged";
+  source_branch: string;
+  target_branch: string;
+  web_url: string;
+  updated_at: string;
+}
+
 /**
  * In-memory GitLab for contract tests: serves the REST + GraphQL surface the
  * adapter uses, with response shapes written from the GitLab API docs.
@@ -37,11 +48,21 @@ export class FakeGitLabServer {
   notes = new Map<number, GitLabNote[]>();
   links: StoredLink[] = [];
   users: GitLabUser[] = [];
+  uploads: Array<{ filename: string; size: number }> = [];
+  mrs = new Map<number, StoredMr>();
+  mrNotes = new Map<number, GitLabNote[]>();
+  pipelines = new Map<number, string>();
   requestLog: string[] = [];
   private tokenUsers = new Map<string, GitLabUser>();
   private currentUser: GitLabUser = { id: 0, username: "nobody" };
   private nextIid = 1;
   private nextNoteId = 1;
+  private nextMrIid = 1;
+
+  /** Test hook: set the MR's head-pipeline status (GitLab status strings). */
+  setPipeline(mrIid: number, status: string): void {
+    this.pipelines.set(mrIid, status);
+  }
 
   constructor(
     readonly baseUrl: string,
@@ -90,8 +111,35 @@ export class FakeGitLabServer {
     if (u.pathname === "/api/graphql") {
       return this.handleGraphql(JSON.parse(String(init?.body ?? "{}")));
     }
+    if (init?.body instanceof FormData) {
+      // Multipart requests must not carry a JSON content-type (fetch sets the boundary).
+      const ct = new Headers(init.headers).get("content-type") ?? "";
+      if (ct.includes("application/json")) {
+        return json(400, { message: "400 Bad request - invalid content type for upload" });
+      }
+      return this.handleUpload(u, method, init.body);
+    }
     return this.handleRest(u, method, init?.body ? JSON.parse(String(init.body)) : {});
   };
+
+  private async handleUpload(u: URL, method: string, form: FormData): Promise<Response> {
+    const path = decodeURIComponent(u.pathname).replace(/^\/api\/v4\//, "/");
+    if (path !== `/projects/${this.projectPath}/uploads` || method !== "POST") {
+      return json(404, { message: `404 Not Found: ${method} ${path}` });
+    }
+    const file = form.get("file");
+    if (!(file instanceof File) || file.name === "") {
+      return json(400, { message: "400 Bad request - file is invalid" });
+    }
+    const n = this.uploads.push({ filename: file.name, size: file.size });
+    const url = `/uploads/${n.toString(16).padStart(8, "0")}/${file.name}`;
+    return json(201, {
+      url,
+      full_path: `/-/project/999${url}`,
+      markdown: `![${file.name}](${url})`,
+      alt: file.name,
+    });
+  }
 
   // ---------- REST ----------
 
@@ -132,6 +180,68 @@ export class FakeGitLabServer {
         author,
       });
       return json(201, this.publicIssue(issue));
+    }
+
+    if (sub === "/merge_requests" && method === "POST") {
+      const iid = this.nextMrIid++;
+      const mr: StoredMr = {
+        iid,
+        title: String(body.title ?? ""),
+        description: String(body.description ?? ""),
+        state: "opened",
+        source_branch: String(body.source_branch ?? ""),
+        target_branch: String(body.target_branch ?? ""),
+        web_url: `${this.baseUrl}/${this.projectPath}/-/merge_requests/${iid}`,
+        updated_at: new Date().toISOString(),
+      };
+      this.mrs.set(iid, mr);
+      this.mrNotes.set(iid, []);
+      return json(201, this.publicMr(mr));
+    }
+
+    const mrMatch = sub.match(/^\/merge_requests\/(\d+)(\/.*)?$/);
+    if (mrMatch) {
+      const iid = Number(mrMatch[1]);
+      const rest = mrMatch[2] ?? "";
+      const mr = this.mrs.get(iid);
+      if (!mr) return json(404, { message: "404 Merge Request Not Found" });
+      if (rest === "" && method === "GET") return json(200, this.publicMr(mr));
+      if (rest === "" && method === "PUT") {
+        if (body.state_event === "close") {
+          if (mr.state === "merged") return json(422, { message: "422 Merged MRs cannot close" });
+          mr.state = "closed";
+        }
+        if (body.state_event === "reopen") {
+          if (mr.state === "merged") return json(422, { message: "422 Merged MRs cannot reopen" });
+          mr.state = "opened";
+        }
+        mr.updated_at = new Date().toISOString();
+        return json(200, this.publicMr(mr));
+      }
+      if (rest === "/merge" && method === "PUT") {
+        if (mr.state !== "opened") {
+          return json(405, { message: "405 Method Not Allowed" });
+        }
+        mr.state = "merged";
+        mr.updated_at = new Date().toISOString();
+        return json(200, this.publicMr(mr));
+      }
+      if (rest === "/notes" && method === "GET") {
+        return paged(
+          u,
+          [...(this.mrNotes.get(iid) ?? [])].sort((a, b) => a.id - b.id),
+        );
+      }
+      if (rest === "/notes" && method === "POST") {
+        const note: GitLabNote = {
+          id: this.nextNoteId++,
+          body: String(body.body ?? ""),
+          created_at: new Date().toISOString(),
+          author: this.currentUser,
+        };
+        this.mrNotes.get(iid)!.push(note);
+        return json(201, note);
+      }
     }
 
     const issueMatch = sub.match(/^\/issues\/(\d+)(\/.*)?$/);
@@ -239,6 +349,16 @@ export class FakeGitLabServer {
   private publicIssue(issue: StoredIssue): GitLabIssue {
     const { parent_iid: _p, work_item_type: _w, ...wire } = issue;
     return structuredClone(wire);
+  }
+
+  /** Single-MR GET shape: draft from the title prefix, head_pipeline when one exists. */
+  private publicMr(mr: StoredMr): Record<string, unknown> {
+    const status = this.pipelines.get(mr.iid);
+    return {
+      ...structuredClone(mr),
+      draft: /^draft:/i.test(mr.title),
+      head_pipeline: status ? { status } : null,
+    };
   }
 
   // ---------- GraphQL ----------
