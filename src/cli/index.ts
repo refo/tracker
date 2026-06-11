@@ -14,6 +14,7 @@ import { computeEpicStatus, computeReady } from "../core/ready.ts";
 import { type SearchQuery, searchLocal } from "../core/search.ts";
 import { ensureFresh, syncCache } from "../core/sync.ts";
 import { DomainError, UsageError, redact } from "../errors.ts";
+import { initProject } from "../init.ts";
 import type { ItemState } from "../model/types.ts";
 import { HELP, commandHelp } from "./help.ts";
 import { itemToJson, printItemDetail, printItemLines, printJson, printUsers } from "./output.ts";
@@ -389,7 +390,7 @@ async function cmdDoctor(args: ParsedArgs): Promise<number> {
       name: "config",
       status: "fail",
       detail: (e as Error).message,
-      fix: "create tracker.config.json (see README) in the project root",
+      fix: "run `tracker init` in the project root to create tracker.config.json",
     });
   }
   let ctx: Ctx | null = null;
@@ -491,6 +492,20 @@ async function cmdDoctor(args: ParsedArgs): Promise<number> {
   return failed ? 1 : 0;
 }
 
+function cmdInit(args: ParsedArgs): void {
+  const result = initProject(process.cwd(), {
+    baseUrl: str(args, "--base-url"),
+    project: str(args, "--project"),
+  });
+  console.log(`created ${result.configPath}`);
+  for (const pattern of result.ignoreAdded) console.log(`added "${pattern}" to .gitignore`);
+  for (const warning of result.warnings) console.error(`warning: ${warning}`);
+  if (result.placeholders) {
+    console.log("next: edit gitlab.base_url and gitlab.project in the config");
+  }
+  console.log("then: export TRACKER_GITLAB_TOKEN (or add it to .env) and run: tracker doctor");
+}
+
 // ---------- dispatch ----------
 
 const VALUE_FLAGS: Record<string, Record<string, FlagKind>> = {
@@ -522,6 +537,7 @@ const VALUE_FLAGS: Record<string, Record<string, FlagKind>> = {
   users: { "--json": "bool" },
   whoami: { "--json": "bool" },
   doctor: { "--json": "bool" },
+  init: { "--base-url": "value", "--project": "value" },
   memories: { "--json": "bool" },
   comment: {},
   comments: { "--json": "bool" },
@@ -563,6 +579,11 @@ export async function run(argv: string[]): Promise<number> {
   }
   const args = parseArgs(rest, spec, ALIASES[cmd] ?? {});
 
+  // init and doctor must work without an existing config, so no buildCtx here
+  if (cmd === "init") {
+    cmdInit(args);
+    return 0;
+  }
   if (cmd === "doctor") return cmdDoctor(args);
 
   const ctx = buildCtx();

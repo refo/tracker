@@ -28,16 +28,19 @@ bun run build          # bundle to dist/tracker.js (what the npm package ships)
 
 ## Configuration
 
-Copy `tracker.config.example.json` to `tracker.config.json` and fill in your instance:
+In the project root, scaffold a config:
 
 ```sh
-cp tracker.config.example.json tracker.config.json
+tracker init --base-url https://gitlab.example.com --project group/project
+# or `tracker init` alone, then edit the placeholders
 ```
 
-`tracker.config.json` is **gitignored** (it carries instance/project identifiers); the
-committed example holds the shape. The token is also never committed (env var or gitignored
-`.env`). Config discovery walks up from the current directory, so any subdirectory of the
-project works.
+`init` writes `tracker.config.json` and — inside a git repository — git-ignores the
+local-only files (`tracker.config.json`, `.tracker/`, `.env`) so instance and project
+identifiers can never be committed. The committed `tracker.config.example.json` holds the
+same shape if you prefer copying it by hand. The token is also never committed (env var or
+gitignored `.env`). Config discovery walks up from the current directory, so any
+subdirectory of the project works.
 
 ```json
 {

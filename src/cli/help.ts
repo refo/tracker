@@ -2,6 +2,11 @@ export const HELP = `tracker — multi-backend issue tracking for humans and AI 
 
 usage: tracker <command> [args]
 
+setup:
+  init [--base-url <url>] [--project <group/project>]
+                             scaffold tracker.config.json + .gitignore entries
+  doctor                     verify config, token, connectivity, capabilities
+
 read commands (local cache, auto-sync when stale; all accept --json):
   sync                       refresh the local cache from the provider
   ready [--parent <id>]      open + unblocked + unassigned + not in-progress
@@ -13,7 +18,6 @@ read commands (local cache, auto-sync when stale; all accept --json):
   users <query>              resolve usernames/names to user ids
   whoami                     the authenticated user
   memories [filter]          list project memories
-  doctor                     verify config, token, connectivity, capabilities
 
 write commands:
   create -t <title> [-d <desc>] [--parent <id>] [--epic <id>] [-l a,b]
@@ -125,6 +129,16 @@ examples:
   whoami: "usage: tracker whoami [--json]",
   doctor:
     "usage: tracker doctor [--json]\n\nVerifies config, token, REST/GraphQL connectivity, capabilities, cache.",
+  init: `usage: tracker init [--base-url <url>] [--project <group/project>]
+
+Scaffolds tracker.config.json in the current directory (placeholders when the
+flags are omitted) and, inside a git repository, git-ignores the local-only
+files (tracker.config.json, .tracker/, .env) so instance and project
+identifiers can never be committed. Refuses to overwrite an existing config.
+
+examples:
+  tracker init --base-url https://gitlab.example.com --project group/project
+  tracker init    # then edit the placeholders in tracker.config.json`,
 };
 
 export function commandHelp(cmd: string): string {

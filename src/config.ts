@@ -88,7 +88,7 @@ export function loadConfig(startDir: string = process.cwd()): TrackerConfig {
   const file = findConfigFile(startDir);
   if (!file) {
     throw new UsageError(
-      `no ${CONFIG_FILENAME} found in ${startDir} or any parent directory — create one (see README) or cd into the project.`,
+      `no ${CONFIG_FILENAME} found in ${startDir} or any parent directory — run \`tracker init\` to create one, or cd into the project.`,
     );
   }
   return parseConfig(readFileSync(file, "utf8"), dirname(file));

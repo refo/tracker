@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -59,6 +59,7 @@ describe("CLI exit codes and usage", () => {
     const r = await runCli(["sync"], emptyDir());
     expect(r.code).toBe(1);
     expect(r.stderr).toContain("tracker.config.json");
+    expect(r.stderr).toContain("tracker init");
   });
 
   test("config present but token missing → exit 1 naming the env vars", async () => {
@@ -121,6 +122,43 @@ describe("CLI exit codes and usage", () => {
     const noId = await runCli(["comments"], dir);
     expect(noId.code).toBe(1);
     expect(noId.stderr).toContain("item id is required");
+  });
+});
+
+describe("init", () => {
+  test("creates a config with flag values and exits 0, no token needed", async () => {
+    const dir = emptyDir();
+    const r = await runCli(["init", "--base-url", "https://git.corp.io", "--project", "g/p"], dir);
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain("tracker.config.json");
+    const written = readFileSync(join(dir, "tracker.config.json"), "utf8");
+    expect(written).toContain("https://git.corp.io");
+    expect(written).toContain('"g/p"');
+  });
+
+  test("without flags writes placeholders and tells the user to edit them", async () => {
+    const dir = emptyDir();
+    const r = await runCli(["init"], dir);
+    expect(r.code).toBe(0);
+    expect(r.stdout.toLowerCase()).toContain("edit");
+    expect(existsSync(join(dir, "tracker.config.json"))).toBe(true);
+  });
+
+  test("re-running init fails with exit 1", async () => {
+    const dir = emptyDir();
+    await runCli(["init"], dir);
+    const r = await runCli(["init"], dir);
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain("already exists");
+  });
+
+  test("init appears in help and has per-command help", async () => {
+    const dir = emptyDir();
+    const help = await runCli(["help"], dir);
+    expect(help.stdout).toContain("init");
+    const initHelp = await runCli(["init", "--help"], dir);
+    expect(initHelp.code).toBe(0);
+    expect(initHelp.stdout).toContain("usage: tracker init");
   });
 });
 
