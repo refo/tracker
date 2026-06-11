@@ -313,6 +313,30 @@ async function cmdComment(ctx: Ctx, args: ParsedArgs): Promise<void> {
   console.log(`commented on #${id}`);
 }
 
+async function cmdLabel(ctx: Ctx, args: ParsedArgs): Promise<void> {
+  const id = normalizeId(args.positionals[0]);
+  const csv = (name: string) =>
+    (str(args, name) ?? "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+  const addLabels = csv("--add");
+  const removeLabels = csv("--remove");
+  if (addLabels.length === 0 && removeLabels.length === 0) {
+    throw new UsageError(commandHelp("label"));
+  }
+  await ctx.adapter.update(id, {
+    ...(addLabels.length ? { addLabels } : {}),
+    ...(removeLabels.length ? { removeLabels } : {}),
+  });
+  invalidate(ctx);
+  const parts = [
+    ...(addLabels.length ? [`+${addLabels.join(" +")}`] : []),
+    ...(removeLabels.length ? [`-${removeLabels.join(" -")}`] : []),
+  ];
+  console.log(`#${id} labels: ${parts.join(" ")}`);
+}
+
 async function cmdAttach(ctx: Ctx, args: ParsedArgs): Promise<void> {
   const [idArg, ...paths] = args.positionals;
   const id = normalizeId(idArg);
@@ -663,6 +687,7 @@ const VALUE_FLAGS: Record<string, Record<string, FlagKind>> = {
   comment: {},
   comments: { "--json": "bool" },
   attach: { "--message": "value", "--json": "bool" },
+  label: { "--add": "value", "--remove": "value" },
   pr: {
     "--title": "value",
     "--description": "value",
@@ -742,6 +767,7 @@ export async function run(argv: string[]): Promise<number> {
     comment: cmdComment,
     comments: cmdComments,
     attach: cmdAttach,
+    label: cmdLabel,
     pr: cmdPr,
     spend: cmdSpend,
     estimate: cmdEstimate,

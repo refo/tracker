@@ -180,6 +180,21 @@ describe("CLI exit codes and usage", () => {
     expect(r.stderr).toContain("merge_provider");
   });
 
+  test("label without --add/--remove → usage; with flags proceeds past validation", async () => {
+    const dir = configuredDir();
+    const noFlags = await runCli(["label", "42"], dir);
+    expect(noFlags.code).toBe(1);
+    expect(noFlags.stderr).toContain("usage: tracker label");
+
+    const noId = await runCli(["label", "--add", "status::agent-blocked"], dir);
+    expect(noId.code).toBe(1);
+    expect(noId.stderr).toContain("item id is required");
+
+    const ok = await runCli(["label", "42", "--add", "a,b", "--remove", "c"], dir);
+    expect(ok.code).toBe(1); // unreachable host in this test config
+    expect(ok.stdout + ok.stderr).not.toContain("usage: tracker label");
+  });
+
   test("comment without text and comments without id → usage errors", async () => {
     const dir = configuredDir();
     const noText = await runCli(["comment", "42"], dir);

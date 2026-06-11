@@ -26,6 +26,8 @@ write commands:
   release <id>               clear assignee/label, tombstone live claim tokens
   close <id> [--reason <text>]
   comment <id> <text>        post a comment on an item
+  label <id> [--add a,b] [--remove c,d]
+                             add/remove labels without touching the others
   attach <id> <file...> [-m <message>]
                              upload files and attach them via a comment
   spend <id> <duration>      add time spent (1h30m, 45m, 2d; -30m subtracts)
@@ -93,6 +95,14 @@ Posts a comment on the item. Everything after the id is joined into one
 comment body, so quoting multi-word text is optional.
 
 example: tracker comment 42 "blocked on the design review, see thread"`,
+  label: `usage: tracker label <id> [--add <a,b>] [--remove <c,d>]
+
+Adds and/or removes labels (comma-separated) without clobbering the rest.
+At least one of --add/--remove is required.
+
+examples:
+  tracker label 42 --add status::agent-blocked
+  tracker label 42 --remove status::agent-blocked --add meta::human-only`,
   attach: `usage: tracker attach <id> <file...> [-m <message>] [--json]
 
 Uploads each file to the provider and posts ONE comment on the item containing

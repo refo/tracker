@@ -90,6 +90,7 @@ Read commands serve from a local sqlite cache that auto-syncs when older than
 | `tracker close <id> [--reason <text>]` | Close (clears assignee + in-progress label) |
 | `tracker comment <id> <text>` | Post a comment on an item |
 | `tracker attach <id> <file...> [-m <msg>]` | Upload files, reference them from one comment; prints markdown |
+| `tracker label <id> [--add a,b] [--remove c,d]` | Add/remove labels without clobbering the rest |
 | `tracker spend <id> <duration>` | Add time spent (`1h30m`, `2d`; `-30m` subtracts) |
 | `tracker estimate <id> <duration>` | Set the time estimate (`0` clears it) |
 | `tracker dep <id> --blocked-by <o> \| --blocks <o>` | Add a dependency edge |
