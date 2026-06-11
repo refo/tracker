@@ -6,7 +6,7 @@ import type { TrackerAdapter } from "../adapters/types.ts";
 import { Cache } from "../cache/db.ts";
 import { findGitRoot, guardCacheIgnored, isGitIgnored } from "../cache/ignore-guard.ts";
 import { type TrackerConfig, loadConfig, resolveToken } from "../config.ts";
-import { claimItem, releaseItem } from "../core/claim.ts";
+import { claimItem, releaseItem, secondsSinceClaim } from "../core/claim.ts";
 import { formatDuration, parseDuration } from "../core/duration.ts";
 import { normalizeId } from "../core/ids.ts";
 import { forget, listMemories, remember } from "../core/memory.ts";
@@ -279,8 +279,19 @@ async function cmdSpend(ctx: Ctx, args: ParsedArgs): Promise<void> {
   requireTimeTracking(ctx);
   const [idArg, durationArg] = args.positionals;
   const id = normalizeId(idArg);
-  if (!durationArg) throw new UsageError(commandHelp("spend"));
-  const seconds = parseDuration(durationArg);
+  const sinceClaim = args.flags.get("--since-claim") === true;
+  if (sinceClaim && durationArg) {
+    throw new UsageError("pass either a duration or --since-claim, not both");
+  }
+  if (!sinceClaim && !durationArg) throw new UsageError(commandHelp("spend"));
+  let seconds: number;
+  if (sinceClaim) {
+    const elapsed = secondsSinceClaim(await ctx.adapter.listComments(id), Date.now());
+    if (elapsed === null) throw new DomainError(`#${id} has no claim note to measure from`);
+    seconds = Math.max(60, Math.round(elapsed / 60) * 60); // whole minutes, at least 1m
+  } else {
+    seconds = parseDuration(durationArg!);
+  }
   if (seconds === 0) throw new UsageError("spend needs a non-zero duration (e.g. 1h30m or -30m)");
   await ctx.adapter.addTimeSpent(id, seconds);
   invalidate(ctx);
@@ -699,7 +710,7 @@ const VALUE_FLAGS: Record<string, Record<string, FlagKind>> = {
     "--message": "value",
     "--json": "bool",
   },
-  spend: {},
+  spend: { "--since-claim": "bool" },
   estimate: {},
   sync: {},
   claim: {},

@@ -31,6 +31,7 @@ write commands:
   attach <id> <file...> [-m <message>]
                              upload files and attach them via a comment
   spend <id> <duration>      add time spent (1h30m, 45m, 2d; -30m subtracts)
+  spend <id> --since-claim   log elapsed time since the latest claim note
   estimate <id> <duration>   set the time estimate (0 clears it)
   dep <id> --blocked-by <other> | --blocks <other>
   parent <child-id> <parent-id>
@@ -145,14 +146,19 @@ Lists the item's comments oldest-first (system notes are filtered out). Claim
 notes (🔒/🔓) and memory entries (📌) appear here too — useful for debugging.
 
 example: tracker comments 42 --json`,
-  spend: `usage: tracker spend <id> <duration>
+  spend: `usage: tracker spend <id> <duration> | tracker spend <id> --since-claim
 
 Adds to the item's time spent. Durations use GitLab conventions:
 units w/d/h/m/s with 1d = 8h and 1w = 5d. A leading "-" subtracts.
 
+--since-claim logs the wall-clock elapsed since the latest 🔒 claim note
+(rounded to whole minutes, minimum 1m) — claim-to-done ticket timing with
+no client-side clock needed. Exit 2 if the item was never claimed.
+
 examples:
   tracker spend 42 1h30m
-  tracker spend 42 -30m     # logged too much, take 30m back`,
+  tracker spend 42 -30m         # logged too much, take 30m back
+  tracker spend 42 --since-claim`,
   estimate: `usage: tracker estimate <id> <duration>
 
 Sets the item's time estimate (same duration format as spend). 0 clears it.

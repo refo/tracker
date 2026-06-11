@@ -6,6 +6,7 @@ import {
   electWinner,
   parseClaim,
   parseRelease,
+  secondsSinceClaim,
 } from "../../src/core/claim.ts";
 import type { Comment } from "../../src/model/types.ts";
 import { alice } from "../helpers/items.ts";
@@ -124,5 +125,25 @@ describe("electWinner", () => {
         CLAIM_TTL_MS,
       ),
     ).toBeNull();
+  });
+});
+
+describe("secondsSinceClaim", () => {
+  test("returns elapsed seconds from the LATEST claim note", () => {
+    const comments: Comment[] = [
+      claimComment("1", "alice", "old1", T0 - 3 * 3600_000),
+      releaseComment("2", "old1"),
+      claimComment("3", "alice", "cur1", T0 - 90 * 60_000),
+      { id: "4", body: "ordinary note", author: alice, createdAt: new Date(T0).toISOString() },
+    ];
+    expect(secondsSinceClaim(comments, T0)).toBe(90 * 60);
+  });
+
+  test("returns null when no claim note exists", () => {
+    const comments: Comment[] = [
+      { id: "1", body: "just a comment", author: alice, createdAt: new Date(T0).toISOString() },
+    ];
+    expect(secondsSinceClaim(comments, T0)).toBeNull();
+    expect(secondsSinceClaim([], T0)).toBeNull();
   });
 });

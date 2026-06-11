@@ -195,6 +195,17 @@ describe("CLI exit codes and usage", () => {
     expect(ok.stdout + ok.stderr).not.toContain("usage: tracker label");
   });
 
+  test("spend --since-claim conflicts with an explicit duration; alone it passes validation", async () => {
+    const dir = configuredDir();
+    const both = await runCli(["spend", "42", "1h", "--since-claim"], dir);
+    expect(both.code).toBe(1);
+    expect(both.stderr).toContain("either");
+
+    const alone = await runCli(["spend", "42", "--since-claim"], dir);
+    expect(alone.code).toBe(1); // unreachable host in this test config
+    expect(alone.stdout + alone.stderr).not.toContain("usage: tracker spend");
+  });
+
   test("comment without text and comments without id → usage errors", async () => {
     const dir = configuredDir();
     const noText = await runCli(["comment", "42"], dir);

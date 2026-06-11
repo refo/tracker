@@ -63,6 +63,21 @@ export function electWinner(comments: Comment[], nowMs: number, ttlMs: number): 
   return live[0] ?? null;
 }
 
+/**
+ * Elapsed whole seconds since the LATEST claim note (by server createdAt),
+ * regardless of release/TTL state — "how long ago was this last picked up".
+ * Null when the item has never been claimed.
+ */
+export function secondsSinceClaim(comments: Comment[], nowMs: number): number | null {
+  let latest: number | null = null;
+  for (const c of comments) {
+    if (!c.body.startsWith(CLAIM_MARK)) continue;
+    const ts = Date.parse(c.createdAt);
+    if (Number.isFinite(ts) && (latest === null || ts > latest)) latest = ts;
+  }
+  return latest === null ? null : Math.max(0, Math.round((nowMs - latest) / 1000));
+}
+
 export interface ClaimDeps {
   now(): number;
   sleep(ms: number): Promise<void>;

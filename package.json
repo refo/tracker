@@ -1,6 +1,6 @@
 {
   "name": "trackerctl",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Multi-backend issue-tracking CLI for humans and AI agents — claim races, dependencies, hierarchy, local FTS search, project memory. GitLab adapter first.",
   "license": "MIT",
   "author": "refo",

@@ -92,6 +92,7 @@ Read commands serve from a local sqlite cache that auto-syncs when older than
 | `tracker attach <id> <file...> [-m <msg>]` | Upload files, reference them from one comment; prints markdown |
 | `tracker label <id> [--add a,b] [--remove c,d]` | Add/remove labels without clobbering the rest |
 | `tracker spend <id> <duration>` | Add time spent (`1h30m`, `2d`; `-30m` subtracts) |
+| `tracker spend <id> --since-claim` | Log wall-clock elapsed since the latest 🔒 claim note (claim-to-done timing) |
 | `tracker estimate <id> <duration>` | Set the time estimate (`0` clears it) |
 | `tracker dep <id> --blocked-by <o> \| --blocks <o>` | Add a dependency edge |
 | `tracker parent <child> <parent>` | Re-parent an item |
@@ -176,8 +177,9 @@ domain refusal (e.g. lost a claim race) — pick different work, don't retry.
 - Land it:          `tracker pr merge <id> --close-issues` — also closes the `-i` issues
                     with a comment explaining why; never rely on provider auto-close
 
-- Track time:       `tracker spend <id> 1h30m` after finishing work (estimate vs spent
-                    feeds later evaluations; durations use 1d=8h, -30m subtracts)
+- Track time:       `tracker spend <id> --since-claim` after landing work — logs the
+                    elapsed claim-to-done wall clock from server timestamps (or an
+                    explicit `tracker spend <id> 1h30m`; durations use 1d=8h, -30m subtracts)
 - Project memory:   `tracker remember <key> "<fact>"`, `tracker memories --json`,
                     `tracker forget <key>`
 
