@@ -49,7 +49,8 @@ subdirectory of the project works.
     "base_url": "https://gitlab.example.com",
     "project": "group/project",
     "token_env": ["TRACKER_GITLAB_TOKEN", "GITLAB_PERSONAL_ACCESS_TOKEN"],
-    "native_blocking": true
+    "native_blocking": true,
+    "native_status": false
   },
   "labels": { "in_progress": "status::in-progress" },
   "memory": { "enabled": true, "title": "📌 Project Memory", "label": "meta::memory" },
@@ -64,6 +65,12 @@ subdirectory of the project works.
 - `gitlab.native_blocking` — `true` on Premium (native blocking links). With `false`,
   dependencies are stored as a `Tracker-Blocked-By: #1, #2` trailer line in the blocked
   issue's description — same semantics, works on any tier, zero extra API calls.
+- `gitlab.native_status` — opt-in (Premium/Ultimate with the work-item Status feature):
+  `claim` also moves the item's native Status to *In progress* and `release` back to
+  *To do*, so GitLab boards/filters reflect agent activity without label columns.
+  Statuses are matched by lifecycle **category**, so custom-named lifecycles work.
+  Close/reopen need nothing: GitLab itself moves closed items to *Done* and reopened
+  ones back to *To do*. The label remains the canonical claim signal either way.
 
 Verify a setup with `tracker doctor`.
 
@@ -87,7 +94,7 @@ Read commands serve from a local sqlite cache that auto-syncs when older than
 | `tracker create -t <title> …` | Create; `--parent` builds hierarchy, `--blocked-by` adds deps |
 | `tracker claim <id>` | Race-safe claim (see protocol below) |
 | `tracker release <id>` | Clear assignee + label, tombstone claim tokens |
-| `tracker close <id> [--reason <text>]` | Close (clears assignee + in-progress label) |
+| `tracker close <id> [--reason <text>]` | Close; removes the in-progress label, and clears assignee + tombstones tokens only when a live claim exists (human assignees survive) |
 | `tracker comment <id> <text>` | Post a comment on an item |
 | `tracker attach <id> <file...> [-m <msg>]` | Upload files, reference them from one comment; prints markdown |
 | `tracker label <id> [--add a,b] [--remove c,d]` | Add/remove labels without clobbering the rest |
@@ -101,7 +108,7 @@ Read commands serve from a local sqlite cache that auto-syncs when older than
 | `tracker memories [filter]` | List memories (latest per key wins) |
 | `tracker pr create -t <title> --target <b> …` | Open a PR/MR (`mr` is an alias); `-i 42,43` records Closes trailers |
 | `tracker pr status <id>` | State + provider-neutral CI signal (`none\|pending\|green\|red`) |
-| `tracker pr merge <id> [--close-issues]` | Merge; `--close-issues` closes trailer-referenced issues explicitly |
+| `tracker pr merge <id> [--close-issues]` | Merge; `--close-issues` closes trailer-referenced issues explicitly, with the same claim hygiene as `tracker close` |
 | `tracker pr comment/comments/close/reopen` | Discuss, reject (`close -m <reason>`), reopen |
 
 Issues and PRs are **separate capability ports**: `provider` selects where issues live,

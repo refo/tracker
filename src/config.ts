@@ -11,6 +11,8 @@ export interface TrackerConfig {
     project: string;
     token_env: string[];
     native_blocking: boolean;
+    /** Mirror claims onto GitLab's native work-item Status widget (Premium/Ultimate, opt-in). */
+    native_status: boolean;
   };
   labels: { in_progress: string };
   memory: { enabled: boolean; title: string; label: string };
@@ -40,6 +42,7 @@ interface RawConfig {
     project?: string;
     token_env?: string | string[];
     native_blocking?: boolean;
+    native_status?: boolean;
   };
   labels?: { in_progress?: string };
   memory?: { enabled?: boolean; title?: string; label?: string };
@@ -78,6 +81,7 @@ export function parseConfig(json: string, rootDir: string): TrackerConfig {
       project: String(g.project),
       token_env: tokenEnv,
       native_blocking: g.native_blocking ?? true,
+      native_status: g.native_status ?? false,
     },
     labels: { in_progress: raw.labels?.in_progress ?? "status::in-progress" },
     memory: {

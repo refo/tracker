@@ -73,7 +73,17 @@ export interface WorkItemPatch {
   removeLabels?: string[];
   title?: string;
   description?: string;
+  /** Native-status HINT: adapters without native status support ignore it. */
+  nativeStatus?: WorkflowStatus;
 }
+
+/**
+ * Provider-neutral workflow status, mirrored onto the provider's native status
+ * field where one exists (GitLab work-item Status, a Jira status category).
+ * Only the states tracker itself drives: close/reopen rely on the provider's
+ * own lifecycle defaults (GitLab auto-sets done on close, to-do on reopen).
+ */
+export type WorkflowStatus = "todo" | "in_progress";
 
 export type LinkType = "blocks" | "is_blocked_by";
 

@@ -29,6 +29,7 @@ function configTemplate(baseUrl: string, project: string): string {
       project,
       token_env: ["TRACKER_GITLAB_TOKEN", "GITLAB_PERSONAL_ACCESS_TOKEN"],
       native_blocking: true,
+      native_status: false,
     },
     labels: { in_progress: "status::in-progress" },
     memory: { enabled: true, title: "📌 Project Memory", label: "meta::memory" },

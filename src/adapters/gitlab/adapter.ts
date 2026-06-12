@@ -13,6 +13,7 @@ import type {
   WorkItem,
   WorkItemDraft,
   WorkItemPatch,
+  WorkflowStatus,
 } from "../../model/types.ts";
 import type { AdapterCapabilities, MergeAdapter, RemoteQuery, TrackerAdapter } from "../types.ts";
 import { type FetchLike, GitLabClient, GitLabHttpError } from "./client.ts";
@@ -32,6 +33,8 @@ export interface GitLabAdapterOptions {
   project: string;
   token: string;
   nativeBlocking: boolean;
+  /** Mirror nativeStatus patch hints onto the work-item Status widget (Premium/Ultimate, opt-in). */
+  nativeStatus?: boolean;
   fetchImpl?: FetchLike;
 }
 
@@ -84,6 +87,43 @@ mutation trackerWorkItemSetParent($input: WorkItemUpdateInput!) {
   }
 }`;
 
+const WORK_ITEM_TYPE_OF_QUERY = `
+query trackerWorkItemTypeOf($fullPath: ID!, $iids: [String!]) {
+  project(fullPath: $fullPath) {
+    workItems(iids: $iids) { nodes { id iid workItemType { name } } }
+  }
+}`;
+
+const STATUS_LIFECYCLES_QUERY = `
+query trackerStatusLifecycles($fullPath: ID!) {
+  project(fullPath: $fullPath) {
+    workItemTypes {
+      nodes {
+        name
+        widgetDefinitions {
+          ... on WorkItemWidgetDefinitionStatus {
+            allowedStatuses { id name category }
+          }
+        }
+      }
+    }
+  }
+}`;
+
+const WORK_ITEM_SET_STATUS_MUTATION = `
+mutation trackerWorkItemSetStatus($input: WorkItemUpdateInput!) {
+  workItemUpdate(input: $input) {
+    errors
+    workItem { id }
+  }
+}`;
+
+/** WorkflowStatus → GitLab lifecycle status category (matching by category, not display name, survives custom-named lifecycles). */
+const STATUS_CATEGORY: Record<WorkflowStatus, string> = {
+  todo: "to_do",
+  in_progress: "in_progress",
+};
+
 /** GitLab pipeline statuses → the provider-neutral CI signal. */
 function mapCiStatus(status: string | null | undefined): CiState {
   if (!status) return "none";
@@ -115,8 +155,11 @@ export class GitLabAdapter implements TrackerAdapter, MergeAdapter {
   private projectRef: string;
   private fullPath: string | null;
   private nativeBlocking: boolean;
+  private nativeStatus: boolean;
   private me: User | null = null;
   private taskTypeGid: string | null = null;
+  /** Lifecycle cache: work-item type name → status category → status gid. */
+  private statusGids: Map<string, Map<string, string>> | null = null;
 
   constructor(opts: GitLabAdapterOptions) {
     this.client = new GitLabClient({
@@ -128,11 +171,13 @@ export class GitLabAdapter implements TrackerAdapter, MergeAdapter {
     this.projectRef = encodeURIComponent(opts.project);
     this.fullPath = /^\d+$/.test(opts.project) ? null : opts.project;
     this.nativeBlocking = opts.nativeBlocking;
+    this.nativeStatus = opts.nativeStatus ?? false;
   }
 
   capabilities(): AdapterCapabilities {
     return {
       nativeBlocking: this.nativeBlocking,
+      nativeStatus: this.nativeStatus,
       nativeHierarchy: true,
       serverSearch: true,
       timeTracking: true,
@@ -292,8 +337,71 @@ export class GitLabAdapter implements TrackerAdapter, MergeAdapter {
     if (patch.removeLabels?.length) body.remove_labels = patch.removeLabels.join(",");
     if (patch.title !== undefined) body.title = patch.title;
     if (patch.description !== undefined) body.description = patch.description;
-    if (Object.keys(body).length === 0) return;
-    await this.client.rest(`projects/${this.projectRef}/issues/${id}`, { method: "PUT", body });
+    if (Object.keys(body).length > 0) {
+      await this.client.rest(`projects/${this.projectRef}/issues/${id}`, { method: "PUT", body });
+    }
+    if (patch.nativeStatus && this.nativeStatus) {
+      await this.setNativeStatus(id, patch.nativeStatus);
+    }
+  }
+
+  /** Lifecycle statuses per work-item type, fetched once per process. */
+  private async getStatusGids(): Promise<Map<string, Map<string, string>>> {
+    if (this.statusGids) return this.statusGids;
+    const fullPath = await this.getFullPath();
+    const data = await this.client.graphql<{
+      project: {
+        workItemTypes: {
+          nodes: Array<{
+            name: string;
+            widgetDefinitions: Array<{
+              allowedStatuses?: Array<{ id: string; name: string; category: string }>;
+            }> | null;
+          }>;
+        } | null;
+      } | null;
+    }>(STATUS_LIFECYCLES_QUERY, { fullPath });
+    const out = new Map<string, Map<string, string>>();
+    for (const type of data.project?.workItemTypes?.nodes ?? []) {
+      const statuses = type.widgetDefinitions?.find((d) => d.allowedStatuses)?.allowedStatuses;
+      if (!statuses) continue;
+      const byCategory = new Map<string, string>();
+      // First status per category is the lifecycle's default for that category.
+      for (const s of statuses) {
+        if (!byCategory.has(s.category)) byCategory.set(s.category, s.id);
+      }
+      out.set(type.name, byCategory);
+    }
+    this.statusGids = out;
+    return out;
+  }
+
+  /** Mirror tracker's workflow state onto the native work-item Status widget. */
+  private async setNativeStatus(id: ItemId, status: WorkflowStatus): Promise<void> {
+    const fullPath = await this.getFullPath();
+    const data = await this.client.graphql<{
+      project: {
+        workItems: {
+          nodes: Array<{ id: string; iid: string; workItemType: { name: string } }>;
+        } | null;
+      } | null;
+    }>(WORK_ITEM_TYPE_OF_QUERY, { fullPath, iids: [id] });
+    const node = data.project?.workItems?.nodes.find((n) => n.iid === id);
+    if (!node) throw new DomainError(`#${id} not found`);
+    const category = STATUS_CATEGORY[status];
+    const statusGid = (await this.getStatusGids()).get(node.workItemType.name)?.get(category);
+    if (!statusGid) {
+      throw new UsageError(
+        `no "${category}" status in the ${node.workItemType.name} lifecycle — is the Status feature available on this GitLab? (gitlab.native_status=false disables mirroring)`,
+      );
+    }
+    const res = await this.client.graphql<{ workItemUpdate: { errors: string[] } }>(
+      WORK_ITEM_SET_STATUS_MUTATION,
+      { input: { id: node.id, statusWidget: { status: statusGid } } },
+    );
+    if (res.workItemUpdate.errors.length) {
+      throw new DomainError(`workItemUpdate: ${res.workItemUpdate.errors.join("; ")}`);
+    }
   }
 
   async transition(id: ItemId, to: ItemState): Promise<void> {

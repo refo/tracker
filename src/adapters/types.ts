@@ -15,6 +15,8 @@ import type {
 export interface AdapterCapabilities {
   /** Provider supports first-class blocking links (GitLab Premium). */
   nativeBlocking: boolean;
+  /** Provider mirrors WorkItemPatch.nativeStatus onto a native status field (GitLab work-item Status widget). */
+  nativeStatus: boolean;
   /** Provider supports parent/child hierarchy natively. */
   nativeHierarchy: boolean;
   /** Provider supports server-side search (tracker search --remote). */

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { GitLabAdapter } from "../../src/adapters/gitlab/adapter.ts";
+import { claimItem, closeItem, releaseItem } from "../../src/core/claim.ts";
 import { FakeGitLabServer } from "../helpers/fake-gitlab-server.ts";
 import { runMergeContractSuite } from "./merge-suite.ts";
 import { runContractSuite } from "./suite.ts";
@@ -51,6 +52,66 @@ runMergeContractSuite("GitLabAdapter over mocked HTTP", {
         ),
     };
   },
+});
+
+describe("GitLab native status mirroring", () => {
+  const STATUS_POLICY = {
+    inProgressLabel: "status::in-progress",
+    memoryLabel: "meta::memory",
+    settleMs: 5,
+  };
+  const deps = {
+    now: () => Date.now(),
+    sleep: (ms: number) => new Promise<void>((r) => setTimeout(r, ms)),
+    randomSuffix: () => "status-test",
+  };
+
+  function makeStatusAdapter(server: FakeGitLabServer, nativeStatus: boolean) {
+    return new GitLabAdapter({
+      baseUrl: BASE,
+      project: PROJECT,
+      token: TOKEN_A,
+      nativeBlocking: true,
+      nativeStatus,
+      fetchImpl: server.fetch,
+    });
+  }
+
+  test("claim moves the work item to in_progress; release back to to_do", async () => {
+    const server = makeServer();
+    const adapter = makeStatusAdapter(server, true);
+    const item = await adapter.create({ title: "Status-tracked work" });
+    expect(server.statusOf(Number(item.id))).toBe("to_do");
+
+    const claim = await claimItem(adapter, item.id, STATUS_POLICY, deps);
+    expect(claim.ok).toBe(true);
+    expect(server.statusOf(Number(item.id))).toBe("in_progress");
+
+    await releaseItem(adapter, item.id, STATUS_POLICY);
+    expect(server.statusOf(Number(item.id))).toBe("to_do");
+  });
+
+  test("close relies on the provider lifecycle: status lands on done", async () => {
+    const server = makeServer();
+    const adapter = makeStatusAdapter(server, true);
+    const item = await adapter.create({ title: "Will be done" });
+    await claimItem(adapter, item.id, STATUS_POLICY, deps);
+
+    await closeItem(adapter, item.id, STATUS_POLICY);
+
+    expect(server.statusOf(Number(item.id))).toBe("done");
+  });
+
+  test("native_status=false: claims never touch the status widget", async () => {
+    const server = makeServer();
+    const adapter = makeStatusAdapter(server, false);
+    const item = await adapter.create({ title: "Label-only workflow" });
+
+    await claimItem(adapter, item.id, STATUS_POLICY, deps);
+
+    expect(server.statusOf(Number(item.id))).toBe("to_do");
+    expect(adapter.capabilities().nativeStatus).toBe(false);
+  });
 });
 
 describe("GitLab adapter specifics", () => {

@@ -1,7 +1,16 @@
 import { describe, expect, test } from "bun:test";
 import type { MergeAdapter, TrackerAdapter } from "../../src/adapters/types.ts";
+import { type ClaimDeps, RELEASE_MARK, claimItem } from "../../src/core/claim.ts";
 import { mergeAndCloseIssues } from "../../src/core/merge.ts";
 import type { CiState } from "../../src/model/types.ts";
+
+const POLICY = { inProgressLabel: "status::in-progress", memoryLabel: "meta::memory" };
+
+const fastDeps = (): ClaimDeps => ({
+  now: () => Date.now(),
+  sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+  randomSuffix: () => "merge-suite",
+});
 
 export interface MergeHarness {
   /** Fresh, empty backend exposing both ports plus a CI-state test hook. */
@@ -104,13 +113,56 @@ export function runMergeContractSuite(name: string, harness: MergeHarness): void
         issues: [issue.id],
       });
 
-      const { closed } = await mergeAndCloseIssues(merge, issues, pr.id);
+      const { closed } = await mergeAndCloseIssues(merge, issues, pr.id, POLICY);
       expect(closed).toEqual([issue.id]);
       expect((await merge.prGet(pr.id)).state).toBe("merged");
       expect((await issues.get(issue.id)).state).toBe("closed");
       // the issue records WHY it closed, for zero-context readers
       const bodies = (await issues.listComments(issue.id)).map((c) => c.body).join("\n");
       expect(bodies).toContain(pr.url);
+    });
+
+    test("merge-driven close clears a claimed issue's claim (label, assignee, token)", async () => {
+      const { merge, issues } = await harness.make();
+      const issue = await issues.create({ title: "Claimed work" });
+      const claim = await claimItem(issues, issue.id, { ...POLICY, settleMs: 5 }, fastDeps());
+      expect(claim.ok).toBe(true);
+      const pr = await merge.prCreate({
+        title: "Land claimed work",
+        source: "task/10",
+        target: "dev",
+        issues: [issue.id],
+      });
+
+      await mergeAndCloseIssues(merge, issues, pr.id, POLICY);
+
+      const after = await issues.get(issue.id);
+      expect(after.state).toBe("closed");
+      expect(after.labels).not.toContain(POLICY.inProgressLabel);
+      expect(after.assignees).toEqual([]);
+      const bodies = (await issues.listComments(issue.id)).map((c) => c.body);
+      expect(bodies.some((b) => b.startsWith(RELEASE_MARK) && b.includes("reason=closed"))).toBe(
+        true,
+      );
+    });
+
+    test("merge-driven close preserves a human assignee when no claim exists", async () => {
+      const { merge, issues } = await harness.make();
+      const me = await issues.whoami();
+      const issue = await issues.create({ title: "Human-assigned work" });
+      await issues.update(issue.id, { assigneeIds: [me.id] });
+      const pr = await merge.prCreate({
+        title: "Land human work",
+        source: "task/11",
+        target: "dev",
+        issues: [issue.id],
+      });
+
+      await mergeAndCloseIssues(merge, issues, pr.id, POLICY);
+
+      const after = await issues.get(issue.id);
+      expect(after.state).toBe("closed");
+      expect(after.assignees.map((a) => a.username)).toEqual([me.username]);
     });
 
     test("merge on a closed PR is refused as a domain failure", async () => {

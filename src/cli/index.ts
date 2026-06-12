@@ -6,7 +6,7 @@ import type { TrackerAdapter } from "../adapters/types.ts";
 import { Cache } from "../cache/db.ts";
 import { findGitRoot, guardCacheIgnored, isGitIgnored } from "../cache/ignore-guard.ts";
 import { type TrackerConfig, loadConfig, resolveToken } from "../config.ts";
-import { claimItem, releaseItem, secondsSinceClaim } from "../core/claim.ts";
+import { claimItem, closeItem, releaseItem, secondsSinceClaim } from "../core/claim.ts";
 import { formatDuration, parseDuration } from "../core/duration.ts";
 import { normalizeId } from "../core/ids.ts";
 import { forget, listMemories, remember } from "../core/memory.ts";
@@ -74,6 +74,7 @@ function buildCtx(): Ctx {
     project: config.gitlab.project,
     token,
     nativeBlocking: config.gitlab.native_blocking,
+    nativeStatus: config.gitlab.native_status,
   });
   const cachePath = resolve(config.rootDir, config.cache.path);
   // First creation of the cache dir: make sure it can never be committed.
@@ -212,14 +213,16 @@ async function cmdCreate(ctx: Ctx, args: ParsedArgs): Promise<void> {
 async function cmdClose(ctx: Ctx, args: ParsedArgs): Promise<void> {
   const id = normalizeId(args.positionals[0]);
   const reason = str(args, "--reason");
-  if (reason) await ctx.adapter.comment(id, `closed: ${reason}`);
-  await ctx.adapter.update(id, {
-    assigneeIds: [],
-    removeLabels: [ctx.config.labels.in_progress],
-  });
-  await ctx.adapter.transition(id, "closed");
+  const { clearedClaims } = await closeItem(
+    ctx.adapter,
+    id,
+    claimPolicy(ctx.config),
+    reason ? `closed: ${reason}` : undefined,
+  );
   invalidate(ctx);
-  console.log(`#${id} closed`);
+  const cleared =
+    clearedClaims > 0 ? ` (${clearedClaims} claim${clearedClaims === 1 ? "" : "s"} released)` : "";
+  console.log(`#${id} closed${cleared}`);
 }
 
 async function cmdDep(ctx: Ctx, args: ParsedArgs): Promise<void> {
@@ -416,7 +419,12 @@ async function cmdPr(ctx: Ctx, args: ParsedArgs): Promise<void> {
     case "merge": {
       const id = normalizePrId(positionals[0]);
       if (args.flags.get("--close-issues")) {
-        const { closed } = await mergeAndCloseIssues(ctx.adapter, ctx.adapter, id);
+        const { closed } = await mergeAndCloseIssues(
+          ctx.adapter,
+          ctx.adapter,
+          id,
+          claimPolicy(ctx.config),
+        );
         invalidate(ctx);
         console.log(
           closed.length
@@ -606,6 +614,11 @@ async function cmdDoctor(args: ParsedArgs): Promise<number> {
       name: "blocking-links",
       status: "ok",
       detail: `native_blocking=${config?.gitlab.native_blocking} (configured; tier is not verifiable without mutating). Fallback: Tracker-Blocked-By description trailers.`,
+    });
+    checks.push({
+      name: "native-status",
+      status: "ok",
+      detail: `native_status=${config?.gitlab.native_status} (when true, claim/release mirror onto the work-item Status widget; needs Premium/Ultimate).`,
     });
     const last = ctx.cache.lastSyncAt();
     checks.push({

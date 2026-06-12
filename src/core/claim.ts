@@ -151,7 +151,11 @@ export async function claimItem(
     };
   }
 
-  await adapter.update(id, { assigneeIds: [me.id], addLabels: [policy.inProgressLabel] });
+  await adapter.update(id, {
+    assigneeIds: [me.id],
+    addLabels: [policy.inProgressLabel],
+    nativeStatus: "in_progress",
+  });
   return { ok: true, id, agent: me.username, token };
 }
 
@@ -165,7 +169,11 @@ export async function releaseItem(
   policy: ClaimPolicy,
 ): Promise<{ id: ItemId; cleared: number }> {
   const me = await adapter.whoami();
-  await adapter.update(id, { assigneeIds: [], removeLabels: [policy.inProgressLabel] });
+  await adapter.update(id, {
+    assigneeIds: [],
+    removeLabels: [policy.inProgressLabel],
+    nativeStatus: "todo",
+  });
   const comments = await adapter.listComments(id);
   const released = new Set<string>();
   for (const c of comments) {
@@ -183,4 +191,57 @@ export async function releaseItem(
     cleared++;
   }
   return { id, cleared };
+}
+
+export interface CloseResult {
+  id: ItemId;
+  /** Live (unreleased) claim tokens tombstoned by this close. */
+  clearedClaims: number;
+}
+
+/**
+ * Close with claim hygiene — the single close path shared by `tracker close`
+ * and merge-driven closing (mergeAndCloseIssues).
+ *
+ * The in-progress label is tracker's own policy label, so it is removed
+ * whenever present: closed + in-progress is a contradiction in any workflow.
+ * Assignees are cleared ONLY when an unreleased claim note exists — claims own
+ * the assignee field, but in a claim-less workflow the assignee is a human
+ * record that close must not erase. Unreleased tokens are tombstoned regardless
+ * of election TTL (TTL gates elections, not cleanup). No nativeStatus hint:
+ * providers move closed items to their done status themselves.
+ */
+export async function closeItem(
+  adapter: TrackerAdapter,
+  id: ItemId,
+  policy: ClaimPolicy,
+  note?: string,
+): Promise<CloseResult> {
+  if (note) await adapter.comment(id, note);
+  const item = await adapter.get(id);
+  const comments = await adapter.listComments(id);
+  const released = new Set<string>();
+  for (const c of comments) {
+    const token = parseRelease(c.body);
+    if (token) released.add(token);
+  }
+  const live: ParsedClaim[] = [];
+  for (const c of comments) {
+    const claim = parseClaim(c.body);
+    if (claim && !released.has(claim.token)) live.push(claim);
+  }
+  if (live.length > 0) {
+    const me = await adapter.whoami();
+    await adapter.update(id, { assigneeIds: [], removeLabels: [policy.inProgressLabel] });
+    for (const claim of live) {
+      await adapter.comment(
+        id,
+        `${RELEASE_MARK} token=${claim.token} agent=${me.username} reason=closed`,
+      );
+    }
+  } else if (item.labels.includes(policy.inProgressLabel)) {
+    await adapter.update(id, { removeLabels: [policy.inProgressLabel] });
+  }
+  await adapter.transition(id, "closed");
+  return { id, clearedClaims: live.length };
 }

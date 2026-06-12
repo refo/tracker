@@ -86,6 +86,7 @@ export class FakeAdapter implements TrackerAdapter, MergeAdapter {
   capabilities(): AdapterCapabilities {
     return {
       nativeBlocking: true,
+      nativeStatus: false,
       nativeHierarchy: true,
       serverSearch: true,
       timeTracking: true,

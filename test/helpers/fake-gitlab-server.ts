@@ -8,7 +8,33 @@ interface StoredIssue extends GitLabIssue {
   /** Work-item parent iid, exposed via GraphQL hierarchy widget. */
   parent_iid: number | null;
   work_item_type: string;
+  /** Native work-item status category, exposed via the GraphQL Status widget. */
+  status_category: string;
 }
+
+/** The system-defined status lifecycle (Issue and Task types), as GitLab ships it. */
+const LIFECYCLE_STATUSES = [
+  {
+    id: "gid://gitlab/WorkItems::Statuses::SystemDefined::Status/1",
+    name: "To do",
+    category: "to_do",
+  },
+  {
+    id: "gid://gitlab/WorkItems::Statuses::SystemDefined::Status/2",
+    name: "In progress",
+    category: "in_progress",
+  },
+  {
+    id: "gid://gitlab/WorkItems::Statuses::SystemDefined::Status/3",
+    name: "Done",
+    category: "done",
+  },
+  {
+    id: "gid://gitlab/WorkItems::Statuses::SystemDefined::Status/4",
+    name: "Won't do",
+    category: "canceled",
+  },
+];
 
 /** GitLab's ChronicDuration subset: "1h30m", "-30m", h/m/s units. */
 function parseGlDuration(duration: string): number {
@@ -64,6 +90,13 @@ export class FakeGitLabServer {
     this.pipelines.set(mrIid, status);
   }
 
+  /** Test hook: the issue's native work-item status category. */
+  statusOf(iid: number): string {
+    const issue = this.issues.get(iid);
+    if (!issue) throw new Error(`no issue ${iid}`);
+    return issue.status_category;
+  }
+
   constructor(
     readonly baseUrl: string,
     readonly projectPath: string,
@@ -89,6 +122,7 @@ export class FakeGitLabServer {
       time_stats: { time_estimate: 0, total_time_spent: 0 },
       parent_iid: null,
       work_item_type: "Issue",
+      status_category: "to_do",
       ...partial,
       iid: partial.iid ?? iid,
     };
@@ -340,14 +374,21 @@ export class FakeGitLabServer {
     }
     if (body.title !== undefined) issue.title = String(body.title);
     if (body.description !== undefined) issue.description = String(body.description);
-    if (body.state_event === "close") issue.state = "closed";
-    if (body.state_event === "reopen") issue.state = "opened";
+    // GitLab's lifecycle defaults: closing moves status to done, reopening to to-do.
+    if (body.state_event === "close") {
+      issue.state = "closed";
+      issue.status_category = "done";
+    }
+    if (body.state_event === "reopen") {
+      issue.state = "opened";
+      issue.status_category = "to_do";
+    }
     issue.updated_at = new Date().toISOString();
     return json(200, this.publicIssue(issue));
   }
 
   private publicIssue(issue: StoredIssue): GitLabIssue {
-    const { parent_iid: _p, work_item_type: _w, ...wire } = issue;
+    const { parent_iid: _p, work_item_type: _w, status_category: _s, ...wire } = issue;
     return structuredClone(wire);
   }
 
@@ -405,6 +446,7 @@ export class FakeGitLabServer {
       const input = variables.input as {
         id: string;
         hierarchyWidget?: { parentId: string | null };
+        statusWidget?: { status: string };
       };
       const issue = this.issues.get(gidToIid(input.id));
       if (!issue) {
@@ -415,8 +457,36 @@ export class FakeGitLabServer {
           ? gidToIid(input.hierarchyWidget.parentId)
           : null;
       }
+      if (input.statusWidget) {
+        const status = LIFECYCLE_STATUSES.find((s) => s.id === input.statusWidget!.status);
+        if (!status) {
+          return json(200, {
+            data: { workItemUpdate: { errors: ["Status not found"], workItem: null } },
+          });
+        }
+        issue.status_category = status.category;
+      }
       return json(200, {
         data: { workItemUpdate: { errors: [], workItem: { id: input.id } } },
+      });
+    }
+
+    // Status lifecycle definitions (must dispatch before the plain workItemTypes query).
+    if (query.includes("allowedStatuses")) {
+      return json(200, {
+        data: {
+          project: {
+            workItemTypes: {
+              nodes: ["Issue", "Task"].map((name) => ({
+                name,
+                widgetDefinitions: [
+                  {},
+                  { allowedStatuses: LIFECYCLE_STATUSES.map((s) => ({ ...s })) },
+                ],
+              })),
+            },
+          },
+        },
       });
     }
 
@@ -440,7 +510,11 @@ export class FakeGitLabServer {
       const iids = (variables.iids as string[]).map(Number);
       const nodes = iids
         .filter((iid) => this.issues.has(iid))
-        .map((iid) => ({ id: iidToGid(iid), iid: String(iid) }));
+        .map((iid) => ({
+          id: iidToGid(iid),
+          iid: String(iid),
+          workItemType: { name: this.issues.get(iid)!.work_item_type },
+        }));
       return json(200, { data: { project: { workItems: { nodes } } } });
     }
 

@@ -118,6 +118,27 @@
   matching both providers' reality. Review threads and approvals are deferred until an
   address-review workflow needs them.
 
+- **Claim-aware close (2026-06-12, bug found in the field)**: `tracker pr merge --close-issues`
+  used to close issues via bare `transition()`, leaving the in-progress label + assignee of a
+  claimed issue in place (a parent feature shipped via `/ship` stayed "in progress" while
+  closed). Both close paths now share `closeItem` in core: the in-progress label is removed
+  whenever present (closed + in-progress is contradictory in any workflow), but assignees are
+  cleared and tokens tombstoned (`reason=closed`) ONLY when an unreleased claim note exists —
+  in a claim-less/human workflow the assignee is a record that close must not erase. Token
+  liveness for cleanup ignores the election TTL (TTL gates races, not hygiene).
+
+- **Native work-item status mirroring (2026-06-12, opt-in)**: `gitlab.native_status` (default
+  `false`; tier/feature-gated like `native_blocking`, not probe-verified at config time —
+  though unlike blocking links it WOULD be probeable read-only via widgetDefinitions, the flag
+  stays the source of truth for symmetry and simplicity). When on, `claim` → status
+  *In progress*, `release` → *To do*, carried as a provider-neutral `nativeStatus` HINT on
+  `WorkItemPatch` that core attaches and non-supporting adapters ignore — the canonical model
+  stays `open|closed` + labels, and the label remains the claim-protocol signal. Statuses are
+  resolved by lifecycle **category** (`to_do`/`in_progress`), not display name, so renamed/
+  custom lifecycles work; the per-type status gid map is cached per process. `close`/`reopen`
+  deliberately send no hint: GitLab's own lifecycle moves closed→*Done*, reopened→*To do*
+  (verified live).
+
 ## Verification record (2026-06-10)
 
 - `bun run gate`: typecheck clean, biome clean, **94 tests / 0 fail** (unit + contract suite

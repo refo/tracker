@@ -1,5 +1,6 @@
 import type { MergeAdapter, TrackerAdapter } from "../adapters/types.ts";
 import type { ItemId } from "../model/types.ts";
+import { type ClaimPolicy, closeItem } from "./claim.ts";
 
 /**
  * "Closes #N" trailers — the provider-neutral link between a PR and the issues
@@ -29,17 +30,19 @@ export function withClosesTrailers(description: string, issues: ItemId[]): strin
 /**
  * Merge the PR, then close every issue its trailers reference via the issues
  * port, leaving a comment on each so a zero-context reader sees why it closed.
+ * Closing goes through closeItem so merge-driven closes get the same claim
+ * hygiene as `tracker close` — a closed issue must never keep a stale claim.
  */
 export async function mergeAndCloseIssues(
   merge: MergeAdapter,
   issues: TrackerAdapter,
   prId: string,
+  policy: ClaimPolicy,
 ): Promise<{ closed: ItemId[] }> {
   const pr = await merge.prGet(prId);
   await merge.prMerge(prId);
   for (const id of pr.closesIssues) {
-    await issues.transition(id, "closed");
-    await issues.comment(id, `closed by merged PR: ${pr.url}`);
+    await closeItem(issues, id, policy, `closed by merged PR: ${pr.url}`);
   }
   return { closed: pr.closesIssues };
 }
